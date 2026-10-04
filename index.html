@@ -17,7 +17,7 @@
             <meta name="viewport" content="width=device-width,
                 initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
             <style>
-                #map_1553ff3043e0a8ccda2d5b0c279a20bb {
+                #map_56798e8a50ed8dd6b7eb404b568d334b {
                     position: relative;
                     width: 100.0%;
                     height: 100.0%;
@@ -54,8 +54,58 @@
 <body>
     
     
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        /* Base Fluid Reset */
+        #summary-card, #meteogram-modal, #legend-container, #slider-container {
+            box-sizing: border-box !important;
+        }
+
+        /* Responsive Mobile Styles (<768px) */
+        @media (max-width: 768px) {
+            #summary-card {
+                top: 10px !important;
+                left: 10px !important;
+                padding: 6px 10px !important;
+                font-size: 10px !important;
+                max-width: calc(100vw - 60px) !important;
+            }
+
+            #slider-container {
+                bottom: 12px !important;
+                width: 95vw !important;
+                min-width: 0 !important;
+                padding: 10px 12px !important;
+            }
+
+            .slider-flex-row {
+                flex-wrap: wrap !important;
+                justify-content: center !important;
+                gap: 6px 12px !important;
+            }
+
+            #legend-container {
+                bottom: 135px !important;
+                right: 10px !important;
+                padding: 8px 10px !important;
+                font-size: 10px !important;
+                max-width: 160px !important;
+            }
+
+            #meteogram-modal {
+                width: 95vw !important;
+                padding: 12px !important;
+            }
+
+            .chart-wrapper-div {
+                height: 32vh !important;
+                min-height: 180px !important;
+            }
+        }
+    </style>
 
     <div id="summary-card" style="
         position: fixed; top: 15px; left: 60px; z-index: 9999;
@@ -72,14 +122,14 @@
     <div id="meteogram-modal" style="
         display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
         z-index: 10000; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); padding: 16px; border-radius: 12px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.8); border: 1px solid #334155; width: 560px; color: white;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.8); border: 1px solid #334155; width: min(92vw, 560px); color: white;
         font-family: 'Segoe UI', sans-serif;
     ">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-            <span id="meteogram-title" style="font-weight: bold; color: #38bdf8; font-size: 13px;">📊 Exact Point Meteogram</span>
-            <button onclick="document.getElementById('meteogram-modal').style.display='none'" style="background: none; border: none; color: #94a3b8; font-size: 16px; cursor: pointer;">✖</button>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <span id="meteogram-title" style="font-weight: bold; color: #38bdf8; font-size: 12px;">📊 Exact Point Meteogram</span>
+            <button onclick="document.getElementById('meteogram-modal').style.display='none'" style="background: none; border: none; color: #94a3b8; font-size: 18px; cursor: pointer; padding: 0 4px;">✖</button>
         </div>
-        <div style="height: 230px; width: 100%;">
+        <div class="chart-wrapper-div" style="height: 230px; width: 100%; position: relative;">
             <canvas id="meteogramChart"></canvas>
         </div>
     </div>
@@ -92,32 +142,32 @@
 
     <div id="slider-container" style="
         position: fixed; bottom: 25px; left: 50%; transform: translateX(-50%);
-        z-index: 9999; background: rgba(15, 23, 42, 0.92); padding: 12px 22px;
-        border-radius: 12px; color: #f8fafc; font-family: 'Segoe UI', sans-serif; min-width: 720px;
-        text-align: center; border: 1px solid #334155;
+        z-index: 9999; background: rgba(15, 23, 42, 0.92); padding: 12px 20px;
+        border-radius: 12px; color: #f8fafc; font-family: 'Segoe UI', sans-serif;
+        width: min(94vw, 720px); text-align: center; border: 1px solid #334155;
     ">
         <div id="slider-title" style="font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #38bdf8;">Loading forecast timeline...</div>
-        <div style="display: flex; align-items: center; gap: 12px;">
-            <button id="play-btn" style="background: #dc2626; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold;">⏸ Pause</button>
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+            <button id="play-btn" style="background: #dc2626; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; flex-shrink: 0;">⏸ Pause</button>
             <input type="range" id="time-slider" min="0" max="182" value="0" style="width: 100%; cursor: pointer; accent-color: #38bdf8;">
         </div>
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 11px; color: #94a3b8;">
-            <div style="display: flex; align-items: center; gap: 10px;">
+        <div class="slider-flex-row" style="display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: #94a3b8; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                 <span>Variable:</span>
-                <select id="var-select" style="background: #0f172a; color: #38bdf8; border: 1px solid #334155; border-radius: 4px; padding: 2px 6px; font-weight: bold; cursor: pointer;">
+                <select id="var-select" style="background: #0f172a; color: #38bdf8; border: 1px solid #334155; border-radius: 4px; padding: 3px 6px; font-weight: bold; cursor: pointer;">
                     <option value="pra" selected>Hourly Accumulated Rain (mm)</option>
                     <option value="vort">Wind Vorticity (10⁻⁵ s⁻¹)</option>
                     <option value="ps">1.5m Surface Pressure Isobars (hPa)</option>
                 </select>
                 <span>Mode:</span>
-                <select id="accum-mode-select" style="background: #0f172a; color: #38bdf8; border: 1px solid #334155; border-radius: 4px; padding: 2px 6px; font-weight: bold; cursor: pointer;">
+                <select id="accum-mode-select" style="background: #0f172a; color: #38bdf8; border: 1px solid #334155; border-radius: 4px; padding: 3px 6px; font-weight: bold; cursor: pointer;">
                     <option value="hourly" selected>Hourly</option>
                     <option value="24h">24h Daily</option>
                 </select>
             </div>
-            <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
                 <span>Opacity:</span>
-                <input type="range" id="opacity-slider" min="0" max="100" value="80" style="width: 70px; accent-color: #38bdf8;">
+                <input type="range" id="opacity-slider" min="0" max="100" value="80" style="width: 65px; accent-color: #38bdf8;">
             </div>
         </div>
     </div>
@@ -125,7 +175,7 @@
     <script>
     window.addEventListener('load', function() {
         (function initMapTimeline() {
-            var mapInstance = window["map_1553ff3043e0a8ccda2d5b0c279a20bb"];
+            var mapInstance = window["map_56798e8a50ed8dd6b7eb404b568d334b"];
 
             if (!mapInstance || typeof mapInstance.invalidateSize !== 'function') {
                 setTimeout(initMapTimeline, 100);
@@ -347,6 +397,8 @@
                         ? Array.from({length: cleanData.length}, (_, i) => "+" + (i + 1) + "h")
                         : Array.from({length: cleanData.length}, (_, i) => "Day " + (i + 1));
 
+                    var isMobile = window.innerWidth <= 768;
+
                     chartInstance = new Chart(ctx, {
                         type: (accumMode === "24h" && currentVar === "pra") ? 'bar' : 'line',
                         data: {
@@ -358,14 +410,28 @@
                                 backgroundColor: 'rgba(56, 189, 248, 0.25)',
                                 fill: true,
                                 tension: 0.1,
-                                pointRadius: accumMode === "hourly" ? 0 : 3
+                                pointRadius: accumMode === "hourly" ? 0 : (isMobile ? 2 : 3)
                             }]
                         },
                         options: {
-                            responsive: true, maintainAspectRatio: false,
+                            responsive: true,
+                            maintainAspectRatio: false,
                             scales: {
-                                x: { ticks: { color: '#94a3b8', maxTicksLimit: 12 }, grid: { color: '#1e293b' } },
-                                y: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } }
+                                x: {
+                                    ticks: {
+                                        color: '#94a3b8',
+                                        maxTicksLimit: isMobile ? 8 : 12,
+                                        font: { size: isMobile ? 9 : 11 }
+                                    },
+                                    grid: { color: '#1e293b' }
+                                },
+                                y: {
+                                    ticks: {
+                                        color: '#94a3b8',
+                                        font: { size: isMobile ? 9 : 11 }
+                                    },
+                                    grid: { color: '#1e293b' }
+                                }
                             },
                             plugins: { legend: { display: false } }
                         }
@@ -379,14 +445,14 @@
     });
     </script>
     
-            <div class="folium-map" id="map_1553ff3043e0a8ccda2d5b0c279a20bb" ></div>
+            <div class="folium-map" id="map_56798e8a50ed8dd6b7eb404b568d334b" ></div>
         
 </body>
 <script>
     
     
-            var map_1553ff3043e0a8ccda2d5b0c279a20bb = L.map(
-                "map_1553ff3043e0a8ccda2d5b0c279a20bb",
+            var map_56798e8a50ed8dd6b7eb404b568d334b = L.map(
+                "map_56798e8a50ed8dd6b7eb404b568d334b",
                 {
                     center: [16.0, 131.0],
                     crs: L.CRS.EPSG3857,
@@ -403,7 +469,7 @@
 
         
     
-            var tile_layer_112a186932499022637f7dcbf16b7eaf = L.tileLayer(
+            var tile_layer_99fa804d8ea035ce867232d45997886d = L.tileLayer(
                 "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
                 {
   "minZoom": 0,
@@ -420,10 +486,10 @@
             );
         
     
-            tile_layer_112a186932499022637f7dcbf16b7eaf.addTo(map_1553ff3043e0a8ccda2d5b0c279a20bb);
+            tile_layer_99fa804d8ea035ce867232d45997886d.addTo(map_56798e8a50ed8dd6b7eb404b568d334b);
         
     
-            var tile_layer_01fa85a1b6eff6b1aa4b06b19003584e = L.tileLayer(
+            var tile_layer_498626a424ee35e52e37c8308d1709cc = L.tileLayer(
                 "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{y}/{x}{r}.png",
                 {
   "minZoom": 0,
@@ -440,7 +506,7 @@
             );
         
     
-            var tile_layer_718c957bae78c19f621e367ac904d7e3 = L.tileLayer(
+            var tile_layer_198c1cc5c425bd6777e85a90a7b63687 = L.tileLayer(
                 "https://{s}.tile.openstreetmap.org/{z}/{y}/{x}.png",
                 {
   "minZoom": 0,
@@ -461,7 +527,7 @@
             );
         
     
-            var tile_layer_ed3e4d9465a2ff6758ffe704d05ab71e = L.tileLayer(
+            var tile_layer_12e534287fb8648287d80e0dc8424f09 = L.tileLayer(
                 "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
                 {
   "minZoom": 0,
@@ -478,66 +544,66 @@
             );
         
     
-            tile_layer_ed3e4d9465a2ff6758ffe704d05ab71e.addTo(map_1553ff3043e0a8ccda2d5b0c279a20bb);
+            tile_layer_12e534287fb8648287d80e0dc8424f09.addTo(map_56798e8a50ed8dd6b7eb404b568d334b);
         
     
-            var rectangle_ee7ab3342679c6d4be98c4753ae825ff = L.rectangle(
+            var rectangle_63b2430b4a2844eee78ebbeb7f894e22 = L.rectangle(
                 [[4.0, 114.0], [28.0, 148.0]],
                 {"bubblingMouseEvents": true, "color": "#38bdf8", "dashArray": "4, 4", "dashOffset": null, "fill": false, "fillColor": "#38bdf8", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 1.0, "smoothFactor": 1.0, "stroke": true, "weight": 1.5}
-            ).addTo(map_1553ff3043e0a8ccda2d5b0c279a20bb);
+            ).addTo(map_56798e8a50ed8dd6b7eb404b568d334b);
         
     
-        function geo_json_ecf3d48de1a03a7f5663f2fbd23a2fcc_styler(feature) {
+        function geo_json_3751417096992554cf475db59b7fbdd0_styler(feature) {
             switch(feature.id) {
                 default:
                     return {"color": "#facc15", "dashArray": "6, 6", "fillColor": "none", "weight": 2.5};
             }
         }
 
-        function geo_json_ecf3d48de1a03a7f5663f2fbd23a2fcc_onEachFeature(feature, layer) {
+        function geo_json_3751417096992554cf475db59b7fbdd0_onEachFeature(feature, layer) {
 
             layer.on({
             });
         };
-        var geo_json_ecf3d48de1a03a7f5663f2fbd23a2fcc = L.geoJson(null, {
-                onEachFeature: geo_json_ecf3d48de1a03a7f5663f2fbd23a2fcc_onEachFeature,
+        var geo_json_3751417096992554cf475db59b7fbdd0 = L.geoJson(null, {
+                onEachFeature: geo_json_3751417096992554cf475db59b7fbdd0_onEachFeature,
             
-                style: geo_json_ecf3d48de1a03a7f5663f2fbd23a2fcc_styler,
+                style: geo_json_3751417096992554cf475db59b7fbdd0_styler,
             ...{
 }
         });
 
-        function geo_json_ecf3d48de1a03a7f5663f2fbd23a2fcc_add (data) {
-            geo_json_ecf3d48de1a03a7f5663f2fbd23a2fcc
+        function geo_json_3751417096992554cf475db59b7fbdd0_add (data) {
+            geo_json_3751417096992554cf475db59b7fbdd0
                 .addData(data);
         }
-            geo_json_ecf3d48de1a03a7f5663f2fbd23a2fcc_add({"bbox": [114.99999999999991, 4.9999999999999805, 134.99999999999997, 24.99999999999999], "features": [{"bbox": [114.99999999999991, 4.9999999999999805, 134.99999999999997, 24.99999999999999], "geometry": {"coordinates": [[[119.99999999999993, 24.99999999999999], [134.99999999999997, 24.99999999999999], [134.99999999999997, 4.9999999999999805], [114.99999999999991, 4.9999999999999805], [114.99999999999991, 14.999999999999979], [119.99999999999993, 21.0], [119.99999999999993, 24.99999999999999]]], "type": "Polygon"}, "id": "0", "properties": {"id": 0}, "type": "Feature"}], "type": "FeatureCollection"});
+            geo_json_3751417096992554cf475db59b7fbdd0_add({"bbox": [114.99999999999991, 4.9999999999999805, 134.99999999999997, 24.99999999999999], "features": [{"bbox": [114.99999999999991, 4.9999999999999805, 134.99999999999997, 24.99999999999999], "geometry": {"coordinates": [[[119.99999999999993, 24.99999999999999], [134.99999999999997, 24.99999999999999], [134.99999999999997, 4.9999999999999805], [114.99999999999991, 4.9999999999999805], [114.99999999999991, 14.999999999999979], [119.99999999999993, 21.0], [119.99999999999993, 24.99999999999999]]], "type": "Polygon"}, "id": "0", "properties": {"id": 0}, "type": "Feature"}], "type": "FeatureCollection"});
 
         
     
-            geo_json_ecf3d48de1a03a7f5663f2fbd23a2fcc.addTo(map_1553ff3043e0a8ccda2d5b0c279a20bb);
+            geo_json_3751417096992554cf475db59b7fbdd0.addTo(map_56798e8a50ed8dd6b7eb404b568d334b);
         
     
-            var layer_control_507a4f273e191744252e94a66c02c0a1_layers = {
+            var layer_control_53d4ad9d0fda396755e876be3703a9a0_layers = {
                 base_layers : {
-                    "Esri Satellite" : tile_layer_112a186932499022637f7dcbf16b7eaf,
-                    "CartoDB Dark Matter" : tile_layer_01fa85a1b6eff6b1aa4b06b19003584e,
-                    "OpenStreetMap Standard" : tile_layer_718c957bae78c19f621e367ac904d7e3,
+                    "Esri Satellite" : tile_layer_99fa804d8ea035ce867232d45997886d,
+                    "CartoDB Dark Matter" : tile_layer_498626a424ee35e52e37c8308d1709cc,
+                    "OpenStreetMap Standard" : tile_layer_198c1cc5c425bd6777e85a90a7b63687,
                 },
                 overlays :  {
-                    "City \u0026 Boundary Labels" : tile_layer_ed3e4d9465a2ff6758ffe704d05ab71e,
-                    "macro_element_ecf3d48de1a03a7f5663f2fbd23a2fcc" : geo_json_ecf3d48de1a03a7f5663f2fbd23a2fcc,
+                    "City \u0026 Boundary Labels" : tile_layer_12e534287fb8648287d80e0dc8424f09,
+                    "macro_element_3751417096992554cf475db59b7fbdd0" : geo_json_3751417096992554cf475db59b7fbdd0,
                 },
             };
-            let layer_control_507a4f273e191744252e94a66c02c0a1 = L.control.layers(
-                layer_control_507a4f273e191744252e94a66c02c0a1_layers.base_layers,
-                layer_control_507a4f273e191744252e94a66c02c0a1_layers.overlays,
+            let layer_control_53d4ad9d0fda396755e876be3703a9a0 = L.control.layers(
+                layer_control_53d4ad9d0fda396755e876be3703a9a0_layers.base_layers,
+                layer_control_53d4ad9d0fda396755e876be3703a9a0_layers.overlays,
                 {
   "position": "topright",
   "collapsed": true,
   "autoZIndex": true,
 }
-            ).addTo(map_1553ff3043e0a8ccda2d5b0c279a20bb);
+            ).addTo(map_56798e8a50ed8dd6b7eb404b568d334b);
 
         
 </script>

@@ -3810,8 +3810,8 @@
 
                 function getHazardZoneStyle(stationObj) {
                     var apiVal = (stationObj && stationObj.apiValue !== undefined) ? stationObj.apiValue : 0.0;
-                    var warn = (stationObj && stationObj.alertWarn) || { level: 'NORMAL', color: '#22c55e', border: '#16a34a' };[cite: 1]
-                    var lvl = warn.level || 'NORMAL';[cite: 1]
+                    var warn = (stationObj && stationObj.alertWarn) || { level: 'NORMAL', color: '#22c55e', border: '#16a34a' };
+                    var lvl = warn.level || 'NORMAL';
 
                     // Render transparent if API soil moisture is below minimum threshold
                     if (apiVal <= 5.0) {
@@ -3825,19 +3825,19 @@
                         };
                     }
 
-                    var strokeCol = '#16a34a';[cite: 1]
-                    var fillCol = '#22c55e';[cite: 1]
-                    var fillOp = 0.16 * currentOpacity;[cite: 1]
-                    var lineOp = 0.70 * currentOpacity;[cite: 1]
-                    var weight = 1.4;[cite: 1]
-                    var dash = '3, 3';[cite: 1]
+                    var strokeCol = '#16a34a';
+                    var fillCol = '#22c55e';
+                    var fillOp = 0.16 * currentOpacity;
+                    var lineOp = 0.70 * currentOpacity;
+                    var weight = 1.4;
+                    var dash = '3, 3';
 
-                    if (lvl === 'RED') {[cite: 1]
-                        strokeCol = '#b91c1c'; fillCol = '#ef4444'; fillOp = 0.45 * currentOpacity; lineOp = 0.98 * currentOpacity; weight = 2.8; dash = null;[cite: 1]
-                    } else if (lvl === 'ORANGE') {[cite: 1]
-                        strokeCol = '#ea580c'; fillCol = '#f97316'; fillOp = 0.36 * currentOpacity; lineOp = 0.92 * currentOpacity; weight = 2.4; dash = null;[cite: 1]
-                    } else if (lvl === 'YELLOW') {[cite: 1]
-                        strokeCol = '#ca8a04'; fillCol = '#eab308'; fillOp = 0.28 * currentOpacity; lineOp = 0.85 * currentOpacity; weight = 2.0; dash = '4, 4';[cite: 1]
+                    if (lvl === 'RED') {
+                        strokeCol = '#b91c1c'; fillCol = '#ef4444'; fillOp = 0.45 * currentOpacity; lineOp = 0.98 * currentOpacity; weight = 2.8; dash = null;
+                    } else if (lvl === 'ORANGE') {
+                        strokeCol = '#ea580c'; fillCol = '#f97316'; fillOp = 0.36 * currentOpacity; lineOp = 0.92 * currentOpacity; weight = 2.4; dash = null;
+                    } else if (lvl === 'YELLOW') {
+                        strokeCol = '#ca8a04'; fillCol = '#eab308'; fillOp = 0.28 * currentOpacity; lineOp = 0.85 * currentOpacity; weight = 2.0; dash = '4, 4';
                     }
 
                     return {

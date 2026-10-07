@@ -4132,10 +4132,10 @@
                 // Assign mock 7-AP (7-day past rain) per AWS station region if telemetry is offline
                 function getMockPastRainForStation(regionId) {
                     switch (regionId) {
-                        case 'CAR': return 85.0;      // Highly saturated prior soil (Benguet slopes)
+                        case 'CAR': return 15.0;      // Highly saturated prior soil (Benguet slopes)
                         case 'R4A': return 45.0;      // Moderately wet soil (CALABARZON)
-                        case 'R5':  return 120.0;     // Extremely saturated prior soil (Bicol slopes)
-                        default:    return 20.0;      // Relatively dry soil baseline
+                        case 'R5':  return 10.0;     // Extremely saturated prior soil (Bicol slopes)
+                        default:    return 10.0;      // Relatively dry soil baseline
                     }
                 }
                 /* =========================================================================

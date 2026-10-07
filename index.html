@@ -3745,83 +3745,76 @@
                 }
 
                 function getStationTooltipHtml(st) {
-                    var warn = st.alertWarn || { level: 'NORMAL', text: 'Normal (< 7.5 mm)', color: '#4ade80' };
-                    var regName = st.regionName || (REGIONAL_THRESHOLDS[st.regionId] ? REGIONAL_THRESHOLDS[st.regionId].name : '');
+                    var warn = st.alertWarn || { level: 'NORMAL', text: 'Normal', color: '#4ade80' };[cite: 1]
+                    var regName = st.regionName || '';[cite: 1]
+                    var apiStr = (st.apiValue !== undefined) ? st.apiValue.toFixed(1) : '0.0';
                     var rainStr = (st.currentRain !== undefined) ? st.currentRain.toFixed(1) : '0.0';
+                    var confStr = st.confidence || 'High';
 
                     return `
                         <div style="font-family:'Segoe UI',system-ui,sans-serif; font-size:11px; line-height:1.45; padding:2px;">
-                            <b style="color:#38bdf8;">📍 ${st.displayName}</b>${regName ? ` <span style="color:#94a3b8; font-size:10px;">(${regName})</span>` : ''}<br/>
-                            <span>Active Rain: <b style="color:#facc15;">${rainStr} mm</b></span><br/>
-                            <span>Landslide Alert: <b style="color:${warn.color || '#4ade80'};">${warn.level}</b></span>
+                            <b style="color:#38bdf8;">📍 ${st.displayName}</b> (${regName})<br/>
+                            <span>Rain (+1h): <b>${rainStr} mm</b> | Soil API: <b style="color:#facc15;">${apiStr} mm</b></span><br/>
+                            <span>Conf: <b style="color:#cbd5e1;">${confStr}</b> &bull; Alert: <b style="color:${warn.color};">${warn.level}</b></span>
                         </div>
                     `;
                 }
 
                 function getStationPopupHtml(st) {
-                    var warn = st.alertWarn || { level: 'NORMAL', text: 'Normal (< 7.5 mm)', color: '#22c55e', badgeClass: 'badge-normal' };
-                    var regName = st.regionName || (REGIONAL_THRESHOLDS[st.regionId] ? REGIONAL_THRESHOLDS[st.regionId].name : 'Regional');
-                    var t = REGIONAL_THRESHOLDS[st.regionId] || {};
-                    var rainStr = (st.currentRain !== undefined) ? st.currentRain.toFixed(1) : '0.0';
+                    var warn = st.alertWarn || { level: 'NORMAL', text: 'Normal', color: '#22c55e', badgeClass: 'badge-normal' };[cite: 1]
+                    var regName = st.regionName || 'Regional';[cite: 1]
+                    var t = REGIONAL_THRESHOLDS[st.regionId] || {};[cite: 1]
+                    var rainStr = (st.currentRain !== undefined) ? st.currentRain.toFixed(1) : '0.0';[cite: 1]
+                    var apiStr = (st.apiValue !== undefined) ? st.apiValue.toFixed(1) : '0.0';
+                    var p7Str = (st.past7DaysRain !== undefined) ? st.past7DaysRain.toFixed(1) : '25.0';
+                    var confStr = st.confidence || 'High';
+                    var dayStr = st.activeDay || 1;
 
                     return `
-                        <div style="font-family:'Segoe UI',system-ui,sans-serif; font-size:12px; color:#f8fafc; min-width:250px;">
+                        <div style="font-family:'Segoe UI',system-ui,sans-serif; font-size:12px; color:#f8fafc; min-width:260px;">
                             <div style="font-weight:700; color:#38bdf8; font-size:13.5px; border-bottom:1px solid #334155; padding-bottom:5px; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; gap:6px;">
                                 <span>📍 ${st.displayName}</span>
-                                <span style="font-size:10px; color:#94a3b8; font-weight:600;">${regName}</span>
+                                <span style="font-size:10px; color:#94a3b8; font-weight:600;">20km Zone &bull; ${regName}</span>
                             </div>
                             
-                            <!-- Landslide Alert Assessment Banner -->
+                            <!-- Landslide Soil Saturation & Alert Banner -->
                             <div style="background:rgba(30,41,59,0.85); border:1px solid ${warn.border || '#334155'}; border-radius:8px; padding:7px 10px; margin-bottom:8px;">
                                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                                    <span style="color:#94a3b8; font-size:11px;">Landslide Alert:</span>
+                                    <span style="color:#cbd5e1; font-size:11px;">Soil Moisture (API):</span>
+                                    <b style="color:#facc15; font-size:14px;">${apiStr} mm</b>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                    <span style="color:#94a3b8; font-size:10.5px;">Landslide Alert:</span>
                                     <span class="landslide-badge ${warn.badgeClass || 'badge-normal'}" style="font-size:10px; padding:2px 7px;">${warn.level}</span>
                                 </div>
-                                <div style="display:flex; justify-content:space-between; align-items:center;">
-                                    <span style="color:#cbd5e1; font-size:11px;">Active Rain (+01h):</span>
-                                    <b id="aws-popup-rain-${st.safeName}" style="color:#facc15; font-size:13px;">${rainStr} mm</b>
+                                <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; border-top:1px dashed #334155; padding-top:4px; margin-top:4px;">
+                                    <span style="color:#94a3b8;">Confidence: <b style="color:#38bdf8;">${confStr} (Day ${dayStr})</b></span>
+                                    <span style="color:#94a3b8;">7-AP AWS Rain: <b style="color:#4ade80;">${p7Str} mm</b></span>
                                 </div>
                             </div>
 
                             <!-- Regional Threshold Info -->
                             <div style="background:rgba(15,23,42,0.65); border:1px solid #334155; border-radius:6px; padding:6px 8px; font-size:10px; line-height:1.45; margin-bottom:8px;">
-                                <div style="font-weight:700; color:#cbd5e1; margin-bottom:2px;">Thresholds (${regName}):</div>
-                                <div><span style="color:#facc15;">🟡 Yellow:</span> ${t.yellow ? t.yellow[0] + ' to < ' + t.yellow[1] + ' mm' : '--'}</div>
-                                <div><span style="color:#fb923c;">🟠 Orange:</span> ${t.orange ? t.orange[0] + ' to < ' + t.orange[1] + ' mm' : '--'}</div>
-                                <div><span style="color:#f87171;">🔴 Red:</span> &ge; ${t.red ? t.red + ' mm' : '--'}</div>
-                            </div>
-
-                            <!-- Station Metadata -->
-                            <div style="font-size:11px; color:#94a3b8; line-height:1.4; margin-bottom:8px;">
-                                <div style="display:flex; justify-content:space-between; margin-bottom:3px;">
-                                    <span>Status:</span>
-                                    <span style="color:#4ade80; font-weight:700;">🟢 ${st.status || 'Operational'}</span>
-                                </div>
-                                <div style="display:flex; justify-content:space-between; margin-bottom:3px;">
-                                    <span>Coordinates:</span>
-                                    <span style="color:#38bdf8; font-weight:600;">${st.lat.toFixed(4)}°N, ${st.lng.toFixed(4)}°E</span>
-                                </div>
-                                <div style="display:flex; justify-content:space-between; margin-bottom:3px;">
-                                    <span>Location:</span>
-                                    <span style="text-align:right; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#cbd5e1;" title="${st.locDesc}">${st.locDesc}</span>
-                                </div>
-                                ${st.dateInst ? `<div style="display:flex; justify-content:space-between; font-size:10px;"><span>Installed:</span><span>${st.dateInst}</span></div>` : ''}
+                                <div style="font-weight:700; color:#cbd5e1; margin-bottom:2px;">Regional API Thresholds (${regName}):</div>
+                                <div><span style="color:#facc15;">🟡 Yellow (L1):</span> ${t.yellow ? t.yellow[0] + ' to < ' + t.yellow[1] + ' mm' : '--'}</div>
+                                <div><span style="color:#fb923c;">🟠 Orange (L2):</span> ${t.orange ? t.orange[0] + ' to < ' + t.orange[1] + ' mm' : '--'}</div>
+                                <div><span style="color:#f87171;">🔴 Red (L3):</span> &ge; ${t.red ? t.red + ' mm' : '--'}</div>
                             </div>
 
                             <button type="button" class="btn-inspect-pt-meteogram" onclick="window.inspectPointMeteogram(${st.lat.toFixed(5)}, ${st.lng.toFixed(5)}, event)">
-                                📊 Open 42h Meteogram for this AWS
+                                📊 Open Meteogram for this AWS Site
                             </button>
                         </div>
                     `;
                 }
 
                 function getHazardZoneStyle(stationObj) {
-                    var rainVal = (stationObj && stationObj.currentRain !== undefined) ? stationObj.currentRain : 0.0;
-                    var warn = (stationObj && stationObj.alertWarn) || { level: 'NORMAL', color: '#22c55e', border: '#16a34a' };
-                    var lvl = warn.level || 'NORMAL';
+                    var apiVal = (stationObj && stationObj.apiValue !== undefined) ? stationObj.apiValue : 0.0;
+                    var warn = (stationObj && stationObj.alertWarn) || { level: 'NORMAL', color: '#22c55e', border: '#16a34a' };[cite: 1]
+                    var lvl = warn.level || 'NORMAL';[cite: 1]
 
-                    // If no rain, set color into transparent instead of green
-                    if (rainVal <= 0) {
+                    // Render transparent if API soil moisture is below minimum threshold
+                    if (apiVal <= 5.0) {
                         return {
                             color: 'transparent',
                             weight: 0,
@@ -3832,34 +3825,19 @@
                         };
                     }
 
-                    var strokeCol = '#16a34a';
-                    var fillCol = '#22c55e';
-                    var fillOp = 0.14 * currentOpacity;
-                    var lineOp = 0.65 * currentOpacity;
-                    var weight = 1.3;
-                    var dash = '3, 3';
+                    var strokeCol = '#16a34a';[cite: 1]
+                    var fillCol = '#22c55e';[cite: 1]
+                    var fillOp = 0.16 * currentOpacity;[cite: 1]
+                    var lineOp = 0.70 * currentOpacity;[cite: 1]
+                    var weight = 1.4;[cite: 1]
+                    var dash = '3, 3';[cite: 1]
 
-                    if (lvl === 'RED') {
-                        strokeCol = '#b91c1c';
-                        fillCol = '#ef4444';
-                        fillOp = 0.42 * currentOpacity;
-                        lineOp = 0.98 * currentOpacity;
-                        weight = 2.8;
-                        dash = null;
-                    } else if (lvl === 'ORANGE') {
-                        strokeCol = '#ea580c';
-                        fillCol = '#f97316';
-                        fillOp = 0.35 * currentOpacity;
-                        lineOp = 0.92 * currentOpacity;
-                        weight = 2.4;
-                        dash = null;
-                    } else if (lvl === 'YELLOW') {
-                        strokeCol = '#ca8a04';
-                        fillCol = '#eab308';
-                        fillOp = 0.28 * currentOpacity;
-                        lineOp = 0.85 * currentOpacity;
-                        weight = 2.0;
-                        dash = '4, 4';
+                    if (lvl === 'RED') {[cite: 1]
+                        strokeCol = '#b91c1c'; fillCol = '#ef4444'; fillOp = 0.45 * currentOpacity; lineOp = 0.98 * currentOpacity; weight = 2.8; dash = null;[cite: 1]
+                    } else if (lvl === 'ORANGE') {[cite: 1]
+                        strokeCol = '#ea580c'; fillCol = '#f97316'; fillOp = 0.36 * currentOpacity; lineOp = 0.92 * currentOpacity; weight = 2.4; dash = null;[cite: 1]
+                    } else if (lvl === 'YELLOW') {[cite: 1]
+                        strokeCol = '#ca8a04'; fillCol = '#eab308'; fillOp = 0.28 * currentOpacity; lineOp = 0.85 * currentOpacity; weight = 2.0; dash = '4, 4';[cite: 1]
                     }
 
                     return {
@@ -4128,154 +4106,235 @@
                             });
                     });
                 }
+                /* =========================================================================
+                   TESTING HARNESS: SYNTHETIC DATA GENERATOR (Toggle to false for Production)
+                   ========================================================================= */
+                const USE_MOCK_DATA = true;
 
+                function getMockForecastSequence() {
+                    // Generates a 120-hour synthetic CReSS forecast curve simulating a tropical storm pulse
+                    var seq = [];
+                    for (var h = 1; h <= 120; h++) {
+                        if (h >= 12 && h <= 30) {
+                            // Intense rainfall peak on Day 1-2 (15 to 35 mm/hr)
+                            seq.push(parseFloat((15 + Math.sin(h) * 10).toFixed(1)));
+                        } else if (h >= 48 && h <= 60) {
+                            // Secondary convective pulse on Day 3 (5 to 12 mm/hr)
+                            seq.push(parseFloat((5 + Math.cos(h) * 5).toFixed(1)));
+                        } else {
+                            // Light background rain (0 to 3 mm/hr)
+                            seq.push(parseFloat((Math.random() * 2.5).toFixed(1)));
+                        }
+                    }
+                    return seq;
+                }
+
+                // Assign mock 7-AP (7-day past rain) per AWS station region if telemetry is offline
+                function getMockPastRainForStation(regionId) {
+                    switch (regionId) {
+                        case 'CAR': return 85.0;      // Highly saturated prior soil (Benguet slopes)
+                        case 'R4A': return 45.0;      // Moderately wet soil (CALABARZON)
+                        case 'R5':  return 120.0;     // Extremely saturated prior soil (Bicol slopes)
+                        default:    return 20.0;      // Relatively dry soil baseline
+                    }
+                }
+                /* =========================================================================
+                   5-DAY ANTECEDENT PRECIPITATION INDEX (API) DECAY ENGINE
+                   Model: API(t) = 0.8 * API(t-1) + CReSS(t)
+                   Buffer: Hours +01h to +06h excluded (CReSS spin-up)
+                   Confidence: Days 1-3 (High), Days 4-5 (Moderate)
+                   ========================================================================= */
+                function calculateAPI(past7DaysRain, hourlyForecastSeq, currentStepIdx) {
+                    // Ground-truth 7-day past AWS rainfall (7-AP in mm); default baseline if station telemetry offline
+                    var p7 = (past7DaysRain !== undefined && past7DaysRain !== null) ? parseFloat(past7DaysRain) : 25.0;
+
+                    // Helper to calculate total forecast rainfall within specific hourly index bounds [start, end)
+                    function sumRange(startIdx, endIdx) {
+                        if (!hourlyForecastSeq || hourlyForecastSeq.length === 0) return 0.0;
+                        var sum = 0.0;
+                        var limit = Math.min(endIdx, hourlyForecastSeq.length);
+                        for (var i = startIdx; i < limit; i++) {
+                            sum += (parseFloat(hourlyForecastSeq[i]) || 0.0);
+                        }
+                        return sum;
+                    }
+
+                    // --- 5-DAY DECAY CALCULATIONS (k = 0.8) ---
+                    // Day 1: 0.8 * (7-AP) + CReSS Day 1 (+07h to +24h, skipping +01h..+06h spin-up buffer)
+                    var cressDay1 = sumRange(6, 24);
+                    var api1 = (0.8 * p7) + cressDay1;
+
+                    // Day 2: 0.8 * API(1) + CReSS Day 2 (+25h to +48h)
+                    var cressDay2 = sumRange(24, 48);
+                    var api2 = (0.8 * api1) + cressDay2;
+
+                    // Day 3: 0.8 * API(2) + CReSS Day 3 (+49h to +72h)
+                    var cressDay3 = sumRange(48, 72);
+                    var api3 = (0.8 * api2) + cressDay3;
+
+                    // Day 4: 0.8 * API(3) + CReSS Day 4 (+73h to +96h)
+                    var cressDay4 = sumRange(72, 96);
+                    var api4 = (0.8 * api3) + cressDay4;
+
+                    // Day 5: 0.8 * API(4) + CReSS Day 5 (+97h to +120h)
+                    var cressDay5 = sumRange(96, 120);
+                    var api5 = (0.8 * api4) + cressDay5;
+
+                    // Map active forecast step (+01h to +42h/150h) to current Day and Confidence Tier
+                    var activeHour = currentStepIdx + 1;
+                    var currentAPI = api1;
+                    var activeDay = 1;
+                    var confidenceTier = "High";
+
+                    if (activeHour <= 24) {
+                        currentAPI = api1; activeDay = 1; confidenceTier = "High";
+                    } else if (activeHour <= 48) {
+                        currentAPI = api2; activeDay = 2; confidenceTier = "High";
+                    } else if (activeHour <= 72) {
+                        currentAPI = api3; activeDay = 3; confidenceTier = "High";
+                    } else if (activeHour <= 96) {
+                        currentAPI = api4; activeDay = 4; confidenceTier = "Moderate";
+                    } else {
+                        currentAPI = api5; activeDay = 5; confidenceTier = "Moderate";
+                    }
+
+                    return {
+                        currentAPI: parseFloat(currentAPI.toFixed(1)),
+                        activeDay: activeDay,
+                        confidenceTier: confidenceTier,
+                        p7Rain: p7,
+                        dailyAPIs: [
+                            parseFloat(api1.toFixed(1)),
+                            parseFloat(api2.toFixed(1)),
+                            parseFloat(api3.toFixed(1)),
+                            parseFloat(api4.toFixed(1)),
+                            parseFloat(api5.toFixed(1))
+                        ]
+                    };
+                }
+                
                 function syncAWSStationsRain(stepIdx) {
                     if (!awsStationsList || awsStationsList.length === 0) return;
 
-                    // 1. Evaluate rainfall and alert level for each AWS station
+                    // --- MOCK OVERRIDE FOR TESTING ---
+                    var forecastSeq = [];
+                    if (USE_MOCK_DATA) {
+                        if (!window.mockForecastCache) {
+                            window.mockForecastCache = getMockForecastSequence();
+                        }
+                        forecastSeq = window.mockForecastCache;
+                    } else {
+                        forecastSeq = (lastMeteogramRes && lastMeteogramRes.data) ? lastMeteogramRes.data : [];
+                    }
+
                     awsStationsList.forEach(function (st) {
                         if (st.lat !== null && st.lng !== null) {
                             var f = findRainFeatureAtPoint(st.lat, st.lng);
-                            var rainVal = f ? getFeatureCurrentValue(f, "pra") : 0.0;
-                            st.currentRain = rainVal;
+                            var instantRain = f ? getFeatureCurrentValue(f, "pra") : 0.0;
+                            
+                            // Mock 7-AP override if real station telemetry isn't feeding yet
+                            if (USE_MOCK_DATA && (!st.past7DaysRain || st.past7DaysRain === 25.0)) {
+                                st.past7DaysRain = getMockPastRainForStation(st.regionId);
+                            }
 
-                            // Evaluate Landslide Threshold for this station's region
-                            var warn = getWarningForValue(st.regionId, rainVal);
-                            warn.maxVal = rainVal;
+                            var p7 = st.past7DaysRain || 25.0;
+                            var apiRes = calculateAPI(p7, forecastSeq, stepIdx);
+
+                            st.currentRain = instantRain;
+                            st.apiValue = apiRes.currentAPI;
+                            st.activeDay = apiRes.activeDay;
+                            st.confidence = apiRes.confidenceTier;
+
+                            // Rest of your thresholding and map marker updates...
+                            var warn = getWarningForValue(st.regionId, st.apiValue);
+                            warn.maxVal = st.apiValue;
                             st.alertWarn = warn;
 
-                            // Update basic point CircleMarker styling
                             if (st.marker) {
                                 updateStationMarkerStyle(st);
-
-                                // Update Tooltip content dynamically
                                 if (typeof st.marker.setTooltipContent === 'function') {
                                     st.marker.setTooltipContent(getStationTooltipHtml(st));
                                 }
-
-                                // Update popup content if popup is currently open for this station
-                                var popEl = document.getElementById('aws-popup-rain-' + st.safeName);
-                                if (popEl) {
-                                    popEl.innerText = `${rainVal.toFixed(1)} mm`;
-                                }
-                                if (st.marker.isPopupOpen && st.marker.isPopupOpen()) {
-                                    st.marker.setPopupContent(getStationPopupHtml(st));
-                                }
                             }
 
-                            // Update AWS GeoJSON RIL Hazard Coverage Polygon styling dynamically to synchronized threshold alert color
                             if (st.hazardLayer) {
                                 st.hazardLayer.setStyle(getHazardZoneStyle(st));
                             }
                         }
                     });
 
-                    // 2. Synchronize Regional Warnings & UI Chips directly to AWS Station Alert Levels
-                    var priority = { 'NORMAL': 0, 'YELLOW': 1, 'ORANGE': 2, 'RED': 3 };
-                    var highestAlertLevel = 'NORMAL';
+                    // 2. Synchronize Regional Risk Monitor Cards driven by localized 20km AWS station alerts
+                    var priority = { 'NORMAL': 0, 'YELLOW': 1, 'ORANGE': 2, 'RED': 3 };[cite: 1]
+                    var highestAlertLevel = 'NORMAL';[cite: 1]
 
-                    for (var ridKey in REGIONAL_THRESHOLDS) {
-                        var rStations = awsStationsList.filter(function (s) {
-                            return s.regionId === ridKey && s.lat !== null;
+                    for (var ridKey in REGIONAL_THRESHOLDS) {[cite: 1]
+                        var rStations = awsStationsList.filter(function (s) {[cite: 1]
+                            return s.regionId === ridKey && s.lat !== null;[cite: 1]
                         });
 
-                        var rVal = 0.0;
-                        var highestStationLevel = 'NORMAL';
-                        var highestStationWarn = null;
+                        var maxApiInRegion = 0.0;
+                        var highestStationLevel = 'NORMAL';[cite: 1]
+                        var highestStationWarn = null;[cite: 1]
 
-                        rStations.forEach(function (st) {
-                            var val = st.currentRain || 0.0;
-                            if (val > rVal) rVal = val;
-                            var w = st.alertWarn || getWarningForValue(ridKey, val);
-                            if (priority[w.level] > priority[highestStationLevel]) {
-                                highestStationLevel = w.level;
-                                highestStationWarn = w;
+                        rStations.forEach(function (st) {[cite: 1]
+                            var val = st.apiValue || 0.0;
+                            if (val > maxApiInRegion) maxApiInRegion = val;
+                            var w = st.alertWarn || getWarningForValue(ridKey, val);[cite: 1]
+                            if (priority[w.level] > priority[highestStationLevel]) {[cite: 1]
+                                highestStationLevel = w.level;[cite: 1]
+                                highestStationWarn = w;[cite: 1]
                             }
                         });
 
-                        if (!highestStationWarn) {
-                            highestStationWarn = getWarningForValue(ridKey, rVal);
+                        if (!highestStationWarn) {[cite: 1]
+                            highestStationWarn = getWarningForValue(ridKey, maxApiInRegion);[cite: 1]
                         }
-                        highestStationWarn = Object.assign({}, highestStationWarn, { maxVal: rVal });
-                        regionalActiveWarnings[ridKey] = highestStationWarn;
+                        highestStationWarn = Object.assign({}, highestStationWarn, { maxVal: maxApiInRegion });[cite: 1]
+                        regionalActiveWarnings[ridKey] = highestStationWarn;[cite: 1]
 
-                        if (priority[highestStationWarn.level] > priority[highestAlertLevel]) {
-                            highestAlertLevel = highestStationWarn.level;
+                        if (priority[highestStationWarn.level] > priority[highestAlertLevel]) {[cite: 1]
+                            highestAlertLevel = highestStationWarn.level;[cite: 1]
                         }
 
-                        // Update Regional UI Cards (chips)
-                        var rainEl = document.getElementById('rain-' + ridKey);
-                        var badgeEl = document.getElementById('badge-' + ridKey);
-                        var chipEl = document.getElementById('chip-' + ridKey);
+                        // Update Regional UI Chips
+                        var rainEl = document.getElementById('rain-' + ridKey);[cite: 1]
+                        var badgeEl = document.getElementById('badge-' + ridKey);[cite: 1]
+                        var chipEl = document.getElementById('chip-' + ridKey);[cite: 1]
 
-                        if (rainEl) rainEl.innerText = `${rVal.toFixed(1)} mm`;
-                        if (badgeEl) {
-                            badgeEl.className = 'landslide-badge ' + highestStationWarn.badgeClass;
-                            badgeEl.innerText = highestStationWarn.level === 'NORMAL' ? 'NORM' : highestStationWarn.level;
+                        if (rainEl) rainEl.innerText = `${maxApiInRegion.toFixed(1)} mm API`;
+                        if (badgeEl) {[cite: 1]
+                            badgeEl.className = 'landslide-badge ' + highestStationWarn.badgeClass;[cite: 1]
+                            badgeEl.innerText = highestStationWarn.level === 'NORMAL' ? 'NORM' : highestStationWarn.level;[cite: 1]
                         }
-                        if (chipEl) {
-                            chipEl.style.borderColor = highestStationWarn.border || '#334155';
-                            chipEl.style.background = highestStationWarn.level === 'NORMAL' ? 'rgba(30, 41, 59, 0.7)' :
-                                (highestStationWarn.level === 'RED' ? 'rgba(239, 68, 68, 0.22)' :
-                                (highestStationWarn.level === 'ORANGE' ? 'rgba(249, 115, 22, 0.20)' : 'rgba(234, 179, 8, 0.16)'));
-                        }
-                    }
-
-                    // 3. Synchronize Province Warnings
-                    var provList = ensurePrecomputedProvinces();
-                    provList.forEach(function (provObj) {
-                        var pStations = awsStationsList.filter(function (s) {
-                            return s.prov === provObj.prov && s.lat !== null;
-                        });
-
-                        if (pStations.length > 0) {
-                            var pVal = 0.0;
-                            var pHighestLevel = 'NORMAL';
-                            var pHighestWarn = null;
-
-                            pStations.forEach(function (st) {
-                                var val = st.currentRain || 0.0;
-                                if (val > pVal) pVal = val;
-                                var w = st.alertWarn || getWarningForValue(provObj.rid, val);
-                                if (priority[w.level] > priority[pHighestLevel]) {
-                                    pHighestLevel = w.level;
-                                    pHighestWarn = w;
-                                }
-                            });
-
-                            if (!pHighestWarn) {
-                                pHighestWarn = getWarningForValue(provObj.rid, pVal);
-                            }
-                            pHighestWarn = Object.assign({}, pHighestWarn, { maxVal: pVal });
-                            provinceActiveWarnings[provObj.prov] = pHighestWarn;
-                        } else {
-                            // Province without station inherits regional synchronized warning
-                            provinceActiveWarnings[provObj.prov] = regionalActiveWarnings[provObj.rid] ||
-                                getWarningForValue(provObj.rid, 0.0);
-                        }
-                    });
-
-                    // 4. Update Summary Badge
-                    var summaryBadge = document.getElementById('landslide-summary-badge');
-                    if (summaryBadge) {
-                        if (highestAlertLevel === 'RED') {
-                            summaryBadge.className = 'landslide-badge badge-red';
-                            summaryBadge.innerText = '🔴 RED ALERT';
-                        } else if (highestAlertLevel === 'ORANGE') {
-                            summaryBadge.className = 'landslide-badge badge-orange';
-                            summaryBadge.innerText = '🟠 ORANGE';
-                        } else if (highestAlertLevel === 'YELLOW') {
-                            summaryBadge.className = 'landslide-badge badge-yellow';
-                            summaryBadge.innerText = '🟡 YELLOW';
-                        } else {
-                            summaryBadge.className = 'landslide-badge badge-normal';
-                            summaryBadge.innerText = '🟢 NORMAL';
+                        if (chipEl) {[cite: 1]
+                            chipEl.style.borderColor = highestStationWarn.border || '#334155';[cite: 1]
+                            chipEl.style.background = highestStationWarn.level === 'NORMAL' ? 'rgba(30, 41, 59, 0.7)' :[cite: 1]
+                                (highestStationWarn.level === 'RED' ? 'rgba(239, 68, 68, 0.22)' :[cite: 1]
+                                (highestStationWarn.level === 'ORANGE' ? 'rgba(249, 115, 22, 0.20)' : 'rgba(234, 179, 8, 0.16)'));[cite: 1]
                         }
                     }
 
-                    // 5. Update Regional Layer Polygons Styling to Synchronize with AWS Alert Colors
-                    if (regionalThresholdsLayer) {
-                        regionalThresholdsLayer.setStyle(getRegionalFeatureStyle);
+                    // 3. Update Summary Header Badge
+                    var summaryBadge = document.getElementById('landslide-summary-badge');[cite: 1]
+                    if (summaryBadge) {[cite: 1]
+                        if (highestAlertLevel === 'RED') {[cite: 1]
+                            summaryBadge.className = 'landslide-badge badge-red';[cite: 1]
+                            summaryBadge.innerText = '🔴 RED ALERT';[cite: 1]
+                        } else if (highestAlertLevel === 'ORANGE') {[cite: 1]
+                            summaryBadge.className = 'landslide-badge badge-orange';[cite: 1]
+                            summaryBadge.innerText = '🟠 ORANGE';[cite: 1]
+                        } else if (highestAlertLevel === 'YELLOW') {[cite: 1]
+                            summaryBadge.className = 'landslide-badge badge-yellow';[cite: 1]
+                            summaryBadge.innerText = '🟡 YELLOW';[cite: 1]
+                        } else {
+                            summaryBadge.className = 'landslide-badge badge-normal';[cite: 1]
+                            summaryBadge.innerText = '🟢 NORMAL';[cite: 1]
+                        }
+                    }
+
+                    // 4. Update Regional Layer Polygons
+                    if (regionalThresholdsLayer) {[cite: 1]
+                        regionalThresholdsLayer.setStyle(getRegionalFeatureStyle);[cite: 1]
                     }
                 }
 

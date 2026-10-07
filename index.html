@@ -6,6 +6,7 @@
     <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/js/bootstrap.bundle.min.js"></script>
     <script
         src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.js"></script>
@@ -4213,36 +4214,73 @@
                     };
                 }
                 
+                /* ==========================================================================
+                   SPATIAL UTILITIES & AWS SYNC ENGINE
+                   ========================================================================== */
+
+                /**
+                 * Extracts the maximum forecast rainfall (mm) across the station's 20km buffer zone.
+                 */
+                function getZonalMaxForecastForStation(stationObj, cressLayer) {
+                    if (!cressLayer || !stationObj || typeof turf === 'undefined') return 0.0;
+
+                    try {
+                        var stationPt = turf.point([stationObj.lng, stationObj.lat]);
+                        var bufferPoly = turf.buffer(stationPt, 20, { units: 'kilometers' });
+                        var zonalMaxRain = 0.0;
+
+                        cressLayer.eachLayer(function (gridLayer) {
+                            if (gridLayer.feature && turf.booleanIntersects(bufferPoly, gridLayer.feature)) {
+                                var cellRain = getFeatureCurrentValue(gridLayer.feature, "pra") || 0.0;
+                                if (cellRain > zonalMaxRain) {
+                                    zonalMaxRain = cellRain;
+                                }
+                            }
+                        });
+
+                        return zonalMaxRain;
+                    } catch (err) {
+                        console.warn("Zonal stat lookup fallback for station:", stationObj.displayName, err);
+                        // Fallback to exact point query if spatial intersection fails
+                        var f = findRainFeatureAtPoint(stationObj.lat, stationObj.lng);
+                        return f ? (getFeatureCurrentValue(f, "pra") || 0.0) : 0.0;
+                    }
+                }
+
+                /**
+                 * Synchronizes 7-AP AWS past rainfall + CReSS zonal max forecasts across all stations and regional cards.
+                 */
                 function syncAWSStationsRain(stepIdx) {
                     if (!awsStationsList || awsStationsList.length === 0) return;
 
-                    // Support testing harness if USE_MOCK_DATA is enabled, otherwise use API cache
-                    var forecastSeq = [];
-                    if (typeof USE_MOCK_DATA !== 'undefined' && USE_MOCK_DATA) {
-                        if (!window.mockForecastCache && typeof getMockForecastSequence === 'function') {
-                            window.mockForecastCache = getMockForecastSequence();
-                        }
-                        forecastSeq = window.mockForecastCache || [];
-                    } else {
-                        forecastSeq = (lastMeteogramRes && lastMeteogramRes.data) ? lastMeteogramRes.data : [];
-                    }
-
-                    // 1. Evaluate API soil moisture & localized 20km RIL hazard zone for each AWS site
+                    // 1. Evaluate API soil moisture & localized 20km hazard zones for each AWS site
                     awsStationsList.forEach(function (st) {
                         if (st.lat !== null && st.lng !== null) {
-                            var f = findRainFeatureAtPoint(st.lat, st.lng);
-                            var instantRain = f ? getFeatureCurrentValue(f, "pra") : 0.0;
+                            
+                            // Extract peak (zonal max) forecast rain inside station's 20km buffer zone
+                            var instantRain = getZonalMaxForecastForStation(st, currentGeoJsonLayer);
                             st.currentRain = instantRain;
 
-                            // Mock 7-AP override if real station telemetry isn't feeding yet
-                            if (typeof USE_MOCK_DATA !== 'undefined' && USE_MOCK_DATA && (!st.past7DaysRain || st.past7DaysRain === 25.0)) {
-                                if (typeof getMockPastRainForStation === 'function') {
-                                    st.past7DaysRain = getMockPastRainForStation(st.regionId);
-                                }
+                            // Determine Station 7-AP Telemetry (from station properties or mock generator)
+                            var p7 = 25.0;
+                            if (st.past7DaysRain !== undefined && st.past7DaysRain !== null) {
+                                p7 = parseFloat(st.past7DaysRain);
+                            } else if (typeof USE_MOCK_DATA !== 'undefined' && USE_MOCK_DATA) {
+                                p7 = (typeof getMockPastRainForStation === 'function') ? getMockPastRainForStation(st.regionId) : 25.0;
                             }
 
-                            // Run 5-Day API Decay Engine using 7-AP past rain + CReSS forecast
-                            var p7 = st.past7DaysRain || 30.0;
+                            // Determine forecast sequence for API calculation
+                            var forecastSeq = [];
+                            if (typeof USE_MOCK_DATA !== 'undefined' && USE_MOCK_DATA) {
+                                if (!window.mockForecastCache && typeof getMockForecastSequence === 'function') {
+                                    window.mockForecastCache = getMockForecastSequence();
+                                }
+                                forecastSeq = window.mockForecastCache || [];
+                            } else {
+                                forecastSeq = (lastMeteogramRes && lastMeteogramRes.data) ? lastMeteogramRes.data : [];
+                            }
+
+                            // Run 5-Day API Decay Engine
                             var apiRes = calculateAPI(p7, forecastSeq, stepIdx);
 
                             st.apiValue = apiRes.currentAPI;
@@ -4250,12 +4288,12 @@
                             st.confidence = apiRes.confidenceTier;
                             st.past7DaysRain = p7;
 
-                            // Evaluate threshold alert against Soil Moisture (API) instead of instant single-hour rain
+                            // Calculate alert warning level based on regional API threshold
                             var warn = getWarningForValue(st.regionId, st.apiValue);
                             warn.maxVal = st.apiValue;
                             st.alertWarn = warn;
 
-                            // Update AWS station point marker & tooltips
+                            // Update Leaflet marker and tooltips
                             if (st.marker) {
                                 updateStationMarkerStyle(st);
                                 if (typeof st.marker.setTooltipContent === 'function') {
@@ -4263,7 +4301,7 @@
                                 }
                             }
 
-                            // Update 20km Localized RIL Hazard Coverage Polygon styling
+                            // Update 20km circular buffer polygon
                             if (st.hazardLayer) {
                                 st.hazardLayer.setStyle(getHazardZoneStyle(st));
                             }

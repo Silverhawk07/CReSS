@@ -5014,14 +5014,29 @@
                     })
                         .setContent(popupHtml);
 
-                    activePointMarker.bindPopup(activePopup).openPopup();
+                    // AFTER (Recreates marker if missing & safely guards method calls):
+                    if (!activePointMarker && activePoint) {
+                        activePointMarker = L.circleMarker([activePoint.lat, activePoint.lng], {
+                            radius: 6,
+                            fillColor: '#38bdf8',
+                            color: '#ffffff',
+                            weight: 2,
+                            opacity: 1,
+                            fillOpacity: 0.9
+                        }).addTo(mapObj);
+                    }
 
-                    activePointMarker.on('popupclose', function () {
-                        if (activePointMarker) {
-                            mapObj.removeLayer(activePointMarker);
-                            activePointMarker = null;
-                        }
-                    });
+                    if (activePointMarker) {
+                        activePointMarker.bindPopup(activePopup).openPopup();
+
+                        activePointMarker.off('popupclose'); // Prevent duplicate listeners
+                        activePointMarker.on('popupclose', function () {
+                            if (activePointMarker && mapObj) {
+                                mapObj.removeLayer(activePointMarker);
+                                activePointMarker = null;
+                            }
+                        });
+                    }
 
                     // Render instant chart immediately
                     setTimeout(function () {

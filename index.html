@@ -4216,40 +4216,46 @@
                 function syncAWSStationsRain(stepIdx) {
                     if (!awsStationsList || awsStationsList.length === 0) return;
 
-                    // --- MOCK OVERRIDE FOR TESTING ---
+                    // Support testing harness if USE_MOCK_DATA is enabled, otherwise use API cache
                     var forecastSeq = [];
-                    if (USE_MOCK_DATA) {
-                        if (!window.mockForecastCache) {
+                    if (typeof USE_MOCK_DATA !== 'undefined' && USE_MOCK_DATA) {
+                        if (!window.mockForecastCache && typeof getMockForecastSequence === 'function') {
                             window.mockForecastCache = getMockForecastSequence();
                         }
-                        forecastSeq = window.mockForecastCache;
+                        forecastSeq = window.mockForecastCache || [];
                     } else {
                         forecastSeq = (lastMeteogramRes && lastMeteogramRes.data) ? lastMeteogramRes.data : [];
                     }
 
+                    // 1. Evaluate API soil moisture & localized 20km RIL hazard zone for each AWS site
                     awsStationsList.forEach(function (st) {
                         if (st.lat !== null && st.lng !== null) {
                             var f = findRainFeatureAtPoint(st.lat, st.lng);
                             var instantRain = f ? getFeatureCurrentValue(f, "pra") : 0.0;
-                            
+                            st.currentRain = instantRain;
+
                             // Mock 7-AP override if real station telemetry isn't feeding yet
-                            if (USE_MOCK_DATA && (!st.past7DaysRain || st.past7DaysRain === 25.0)) {
-                                st.past7DaysRain = getMockPastRainForStation(st.regionId);
+                            if (typeof USE_MOCK_DATA !== 'undefined' && USE_MOCK_DATA && (!st.past7DaysRain || st.past7DaysRain === 25.0)) {
+                                if (typeof getMockPastRainForStation === 'function') {
+                                    st.past7DaysRain = getMockPastRainForStation(st.regionId);
+                                }
                             }
 
-                            var p7 = st.past7DaysRain || 25.0;
+                            // Run 5-Day API Decay Engine using 7-AP past rain + CReSS forecast
+                            var p7 = st.past7DaysRain || 30.0;
                             var apiRes = calculateAPI(p7, forecastSeq, stepIdx);
 
-                            st.currentRain = instantRain;
                             st.apiValue = apiRes.currentAPI;
                             st.activeDay = apiRes.activeDay;
                             st.confidence = apiRes.confidenceTier;
+                            st.past7DaysRain = p7;
 
-                            // Rest of your thresholding and map marker updates...
+                            // Evaluate threshold alert against Soil Moisture (API) instead of instant single-hour rain
                             var warn = getWarningForValue(st.regionId, st.apiValue);
                             warn.maxVal = st.apiValue;
                             st.alertWarn = warn;
 
+                            // Update AWS station point marker & tooltips
                             if (st.marker) {
                                 updateStationMarkerStyle(st);
                                 if (typeof st.marker.setTooltipContent === 'function') {
@@ -4257,6 +4263,7 @@
                                 }
                             }
 
+                            // Update 20km Localized RIL Hazard Coverage Polygon styling
                             if (st.hazardLayer) {
                                 st.hazardLayer.setStyle(getHazardZoneStyle(st));
                             }
@@ -4264,77 +4271,77 @@
                     });
 
                     // 2. Synchronize Regional Risk Monitor Cards driven by localized 20km AWS station alerts
-                    var priority = { 'NORMAL': 0, 'YELLOW': 1, 'ORANGE': 2, 'RED': 3 };[cite: 1]
-                    var highestAlertLevel = 'NORMAL';[cite: 1]
+                    var priority = { 'NORMAL': 0, 'YELLOW': 1, 'ORANGE': 2, 'RED': 3 };
+                    var highestAlertLevel = 'NORMAL';
 
-                    for (var ridKey in REGIONAL_THRESHOLDS) {[cite: 1]
-                        var rStations = awsStationsList.filter(function (s) {[cite: 1]
-                            return s.regionId === ridKey && s.lat !== null;[cite: 1]
+                    for (var ridKey in REGIONAL_THRESHOLDS) {
+                        var rStations = awsStationsList.filter(function (s) {
+                            return s.regionId === ridKey && s.lat !== null;
                         });
 
                         var maxApiInRegion = 0.0;
-                        var highestStationLevel = 'NORMAL';[cite: 1]
-                        var highestStationWarn = null;[cite: 1]
+                        var highestStationLevel = 'NORMAL';
+                        var highestStationWarn = null;
 
-                        rStations.forEach(function (st) {[cite: 1]
+                        rStations.forEach(function (st) {
                             var val = st.apiValue || 0.0;
                             if (val > maxApiInRegion) maxApiInRegion = val;
-                            var w = st.alertWarn || getWarningForValue(ridKey, val);[cite: 1]
-                            if (priority[w.level] > priority[highestStationLevel]) {[cite: 1]
-                                highestStationLevel = w.level;[cite: 1]
-                                highestStationWarn = w;[cite: 1]
+                            var w = st.alertWarn || getWarningForValue(ridKey, val);
+                            if (priority[w.level] > priority[highestStationLevel]) {
+                                highestStationLevel = w.level;
+                                highestStationWarn = w;
                             }
                         });
 
-                        if (!highestStationWarn) {[cite: 1]
-                            highestStationWarn = getWarningForValue(ridKey, maxApiInRegion);[cite: 1]
+                        if (!highestStationWarn) {
+                            highestStationWarn = getWarningForValue(ridKey, maxApiInRegion);
                         }
-                        highestStationWarn = Object.assign({}, highestStationWarn, { maxVal: maxApiInRegion });[cite: 1]
-                        regionalActiveWarnings[ridKey] = highestStationWarn;[cite: 1]
+                        highestStationWarn = Object.assign({}, highestStationWarn, { maxVal: maxApiInRegion });
+                        regionalActiveWarnings[ridKey] = highestStationWarn;
 
-                        if (priority[highestStationWarn.level] > priority[highestAlertLevel]) {[cite: 1]
-                            highestAlertLevel = highestStationWarn.level;[cite: 1]
+                        if (priority[highestStationWarn.level] > priority[highestAlertLevel]) {
+                            highestAlertLevel = highestStationWarn.level;
                         }
 
                         // Update Regional UI Chips
-                        var rainEl = document.getElementById('rain-' + ridKey);[cite: 1]
-                        var badgeEl = document.getElementById('badge-' + ridKey);[cite: 1]
-                        var chipEl = document.getElementById('chip-' + ridKey);[cite: 1]
+                        var rainEl = document.getElementById('rain-' + ridKey);
+                        var badgeEl = document.getElementById('badge-' + ridKey);
+                        var chipEl = document.getElementById('chip-' + ridKey);
 
                         if (rainEl) rainEl.innerText = `${maxApiInRegion.toFixed(1)} mm API`;
-                        if (badgeEl) {[cite: 1]
-                            badgeEl.className = 'landslide-badge ' + highestStationWarn.badgeClass;[cite: 1]
-                            badgeEl.innerText = highestStationWarn.level === 'NORMAL' ? 'NORM' : highestStationWarn.level;[cite: 1]
+                        if (badgeEl) {
+                            badgeEl.className = 'landslide-badge ' + highestStationWarn.badgeClass;
+                            badgeEl.innerText = highestStationWarn.level === 'NORMAL' ? 'NORM' : highestStationWarn.level;
                         }
-                        if (chipEl) {[cite: 1]
-                            chipEl.style.borderColor = highestStationWarn.border || '#334155';[cite: 1]
-                            chipEl.style.background = highestStationWarn.level === 'NORMAL' ? 'rgba(30, 41, 59, 0.7)' :[cite: 1]
-                                (highestStationWarn.level === 'RED' ? 'rgba(239, 68, 68, 0.22)' :[cite: 1]
-                                (highestStationWarn.level === 'ORANGE' ? 'rgba(249, 115, 22, 0.20)' : 'rgba(234, 179, 8, 0.16)'));[cite: 1]
+                        if (chipEl) {
+                            chipEl.style.borderColor = highestStationWarn.border || '#334155';
+                            chipEl.style.background = highestStationWarn.level === 'NORMAL' ? 'rgba(30, 41, 59, 0.7)' :
+                                (highestStationWarn.level === 'RED' ? 'rgba(239, 68, 68, 0.22)' :
+                                (highestStationWarn.level === 'ORANGE' ? 'rgba(249, 115, 22, 0.20)' : 'rgba(234, 179, 8, 0.16)'));
                         }
                     }
 
                     // 3. Update Summary Header Badge
-                    var summaryBadge = document.getElementById('landslide-summary-badge');[cite: 1]
-                    if (summaryBadge) {[cite: 1]
-                        if (highestAlertLevel === 'RED') {[cite: 1]
-                            summaryBadge.className = 'landslide-badge badge-red';[cite: 1]
-                            summaryBadge.innerText = '🔴 RED ALERT';[cite: 1]
-                        } else if (highestAlertLevel === 'ORANGE') {[cite: 1]
-                            summaryBadge.className = 'landslide-badge badge-orange';[cite: 1]
-                            summaryBadge.innerText = '🟠 ORANGE';[cite: 1]
-                        } else if (highestAlertLevel === 'YELLOW') {[cite: 1]
-                            summaryBadge.className = 'landslide-badge badge-yellow';[cite: 1]
-                            summaryBadge.innerText = '🟡 YELLOW';[cite: 1]
+                    var summaryBadge = document.getElementById('landslide-summary-badge');
+                    if (summaryBadge) {
+                        if (highestAlertLevel === 'RED') {
+                            summaryBadge.className = 'landslide-badge badge-red';
+                            summaryBadge.innerText = '🔴 RED ALERT';
+                        } else if (highestAlertLevel === 'ORANGE') {
+                            summaryBadge.className = 'landslide-badge badge-orange';
+                            summaryBadge.innerText = '🟠 ORANGE';
+                        } else if (highestAlertLevel === 'YELLOW') {
+                            summaryBadge.className = 'landslide-badge badge-yellow';
+                            summaryBadge.innerText = '🟡 YELLOW';
                         } else {
-                            summaryBadge.className = 'landslide-badge badge-normal';[cite: 1]
-                            summaryBadge.innerText = '🟢 NORMAL';[cite: 1]
+                            summaryBadge.className = 'landslide-badge badge-normal';
+                            summaryBadge.innerText = '🟢 NORMAL';
                         }
                     }
 
                     // 4. Update Regional Layer Polygons
-                    if (regionalThresholdsLayer) {[cite: 1]
-                        regionalThresholdsLayer.setStyle(getRegionalFeatureStyle);[cite: 1]
+                    if (regionalThresholdsLayer) {
+                        regionalThresholdsLayer.setStyle(getRegionalFeatureStyle);
                     }
                 }
 

@@ -5334,10 +5334,12 @@
                                 link.download = `cress_meteogram_${modalCurrentVar}_${activePoint ? activePoint.lat + '_' + activePoint.lng : 'point'}.png`;
                                 link.href = canvas.toDataURL();
                                 link.click();
-                            });
-                        }
-                    });
-                } catch (e) {
+                            }); // closes .then
+                        } // closes if (html2canvas)
+                    }); // closes addEventListener
+                } // <--- 1. CLOSES if (saveBtn)
+
+            } catch (e) { // <--- 2. CLOSES try { ... } and starts catch
                 console.error("Timeline init error:", e);
             }
         })();

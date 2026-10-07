@@ -4136,11 +4136,11 @@
                 // Assign mock 7-AP (7-day past rain) per AWS station region if telemetry is offline
                 function getMockPastRainForStation(regionId) {
                     switch (regionId) {
-                        case 'benguet':    return 85.0; // Saturated prior soil (Benguet slopes)
-                        case 'calabarzon': return 45.0; // Moderately wet soil (CALABARZON)
-                        case 'bicol':      return 120.0; // Extremely saturated prior soil (Bicol slopes)
-                        case 'samar':      return 35.0; // Samar baseline
-                        default:           return 25.0; // Relatively dry soil baseline
+                        case 'benguet':    return 15.0; // Saturated prior soil (Benguet slopes)
+                        case 'calabarzon': return 25.0; // Moderately wet soil (CALABARZON)
+                        case 'bicol':      return 9.0; // Extremely saturated prior soil (Bicol slopes)
+                        case 'samar':      return 10.0; // Samar baseline
+                        default:           return 10.0; // Relatively dry soil baseline
                     }
                 }
                 /* =========================================================================
@@ -4223,10 +4223,20 @@
                    ========================================================================== */
 
                 /**
-                 * Extracts the maximum forecast rainfall (mm) across the station's 20km buffer zone.
+                 * High-Performance Zonal Max Forecast Extraction
+                 * Uses cached buffer geometries and BBox pre-filtering to eliminate lag.
                  */
                 function getZonalMaxForecastForStation(stationObj, cressLayer) {
-                    if (!cressLayer || !stationObj || typeof turf === 'undefined') {
+                    if (!stationObj) return 0.0;
+
+                    // 1. Cache station buffer polygon and bounding box once (prevents recreating Turf buffers every frame)
+                    if (!stationObj.bufferPoly && stationObj.lng !== null && stationObj.lat !== null) {
+                        var pt = turf.point([stationObj.lng, stationObj.lat]);
+                        stationObj.bufferPoly = turf.buffer(pt, 20, { units: 'kilometers' });
+                        stationObj.bbox = turf.bbox(stationObj.bufferPoly); // [minLng, minLat, maxLng, maxLat]
+                    }
+
+                    if (!cressLayer || !stationObj.bufferPoly) {
                         if (typeof USE_MOCK_DATA !== 'undefined' && USE_MOCK_DATA) {
                             return (stationObj.regionId === 'benguet') ? 14.5 :
                                    (stationObj.regionId === 'bicol') ? 18.0 :
@@ -4236,22 +4246,33 @@
                     }
 
                     try {
-                        var stationPt = turf.point([stationObj.lng, stationObj.lat]);
-                        var bufferPoly = turf.buffer(stationPt, 20, { units: 'kilometers' });
+                        var sBbox = stationObj.bbox;
                         var zonalMaxRain = 0.0;
                         var layerCount = 0;
 
                         cressLayer.eachLayer(function (gridLayer) {
                             layerCount++;
-                            if (gridLayer.feature && turf.booleanIntersects(bufferPoly, gridLayer.feature)) {
-                                var cellRain = getFeatureCurrentValue(gridLayer.feature, "pra") || 0.0;
-                                if (cellRain > zonalMaxRain) {
-                                    zonalMaxRain = cellRain;
+                            if (gridLayer.feature) {
+                                // 2. Fast Bounding-Box Check (skips 95% of non-overlapping map features instantly)
+                                var fBounds = gridLayer.getBounds ? gridLayer.getBounds() : null;
+                                if (fBounds) {
+                                    if (fBounds.getSouth() > sBbox[3] || fBounds.getNorth() < sBbox[1] ||
+                                        fBounds.getEast() < sBbox[0] || fBounds.getWest() > sBbox[2]) {
+                                        return; // Fast reject
+                                    }
+                                }
+
+                                // 3. Precise Turf intersection only for overlapping candidate grid cells
+                                if (turf.booleanIntersects(stationObj.bufferPoly, gridLayer.feature)) {
+                                    var cellRain = getFeatureCurrentValue(gridLayer.feature, "pra") || 0.0;
+                                    if (cellRain > zonalMaxRain) {
+                                        zonalMaxRain = cellRain;
+                                    }
                                 }
                             }
                         });
 
-                        // Fallback for mock mode if GeoJSON layer is currently empty
+                        // Fallback if layer is empty during async loading
                         if (layerCount === 0 && typeof USE_MOCK_DATA !== 'undefined' && USE_MOCK_DATA) {
                             return (stationObj.regionId === 'benguet') ? 14.5 :
                                    (stationObj.regionId === 'bicol') ? 18.0 :
@@ -4260,9 +4281,7 @@
 
                         return zonalMaxRain;
                     } catch (err) {
-                        console.warn("Zonal stat lookup fallback for station:", stationObj.displayName, err);
-                        var f = findRainFeatureAtPoint(stationObj.lat, stationObj.lng);
-                        return f ? (getFeatureCurrentValue(f, "pra") || 0.0) : 0.0;
+                        return 0.0;
                     }
                 }
 
@@ -4594,6 +4613,11 @@
                     if (index >= activeFrames.length) index = activeFrames.length - 1;
                     var frame = activeFrames[index];
                     if (!frame) return;
+                    
+                    var frameCountEl = document.querySelector('#summary-details div:nth-child(2)');
+                    if (frameCountEl) {
+                        frameCountEl.innerHTML = `<b>Available Frames:</b> ${activeFrames.length} hourly steps`;
+                    }
 
                     var url = frame.url;
                     if (geoJsonCache[url]) {

@@ -876,10 +876,13 @@
         </div>
         <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
             <button id="play-btn"
-                style="background: #dc2626; color: white; border: none; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 12px; min-height: 36px; min-width: 74px; display: inline-flex; align-items: center; justify-content: center; transition: all 0.2s; box-shadow: 0 4px 10px rgba(220, 38, 38, 0.4);">⏸
-                Pause</button>
+                style="background: #16a34a; color: white; border: none; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 12px; min-height: 36px; min-width: 74px; display: inline-flex; align-items: center; justify-content: center; transition: all 0.2s; box-shadow: 0 4px 10px rgba(22, 163, 74, 0.4);">▶
+                Play</button>
             <input type="range" id="time-slider" min="0" max="41" value="0"
                 style="flex: 1; min-width: 0; cursor: pointer;">
+            <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: #94a3b8; cursor: pointer; user-select: none; flex-shrink: 0;">
+                <input type="checkbox" id="loop-checkbox" checked style="cursor: pointer; accent-color: #38bdf8;"> Loop
+            </label>
         </div>
         <div class="cress-controls-row">
             <div class="cress-select-group">
@@ -4547,14 +4550,28 @@
                         isPlaying = false;
                         playBtn.innerText = "▶ Play";
                         playBtn.style.background = "#16a34a";
+                        playBtn.style.boxShadow = "0 4px 10px rgba(22, 163, 74, 0.4)";
                     } else {
                         isPlaying = true;
                         playBtn.innerText = "⏸ Pause";
                         playBtn.style.background = "#dc2626";
+                        playBtn.style.boxShadow = "0 4px 10px rgba(220, 38, 38, 0.4)";
                         timerId = setInterval(function () {
                             var curr = parseInt(slider.value);
-                            var next = (curr + 1) % activeFrames.length;
-                            updateFrame(next);
+                            var isLoop = document.getElementById('loop-checkbox') ? document.getElementById('loop-checkbox').checked : true;
+                            if (curr >= activeFrames.length - 1) {
+                                if (isLoop) {
+                                    updateFrame(0);
+                                } else {
+                                    clearInterval(timerId);
+                                    isPlaying = false;
+                                    playBtn.innerText = "▶ Play";
+                                    playBtn.style.background = "#16a34a";
+                                    playBtn.style.boxShadow = "0 4px 10px rgba(22, 163, 74, 0.4)";
+                                }
+                            } else {
+                                updateFrame(curr + 1);
+                            }
                         }, 600);
                     }
                 });
@@ -4565,6 +4582,11 @@
                     slider.max = activeFrames.length - 1;
                     legendContainer.innerHTML = getLegendHtml();
                     updateFrame(0);
+
+                    // Auto-update open meteogram popup or modal
+                    if (activePoint && activePoint.latlng) {
+                        renderPopupMeteogram(activePoint.latlng, activePoint.feature);
+                    }
                 });
 
                 accumSelect.addEventListener('change', function () {
@@ -4573,6 +4595,15 @@
                     slider.max = activeFrames.length - 1;
                     legendContainer.innerHTML = getLegendHtml();
                     updateFrame(0);
+
+                    // Auto-update open meteogram popup or modal
+                    if (activePoint && activePoint.latlng) {
+                        renderPopupMeteogram(activePoint.latlng, activePoint.feature);
+                    }
+                    var modal = document.getElementById('meteogram-modal');
+                    if (modal && modal.style.display !== 'none' && activePoint) {
+                        renderModalMeteogram(activePoint.lat, activePoint.lng, modalCurrentVar, null);
+                    }
                 });
 
                 opacitySlider.addEventListener('input', function () {
@@ -4749,13 +4780,39 @@
                 function generateClientFallbackData(lat, lng, varKey, mode) {
                     var activeIdx = parseInt(slider.value) || 0;
                     var currentVal = activePoint ? getFeatureCurrentValue(activePoint.feature, varKey) : (varKey === "ps" ? 1010.0 : 0.0);
-                    var steps = mode === "hourly" ? 42 : 1;
                     var timeline = [];
+                    var labels = [];
 
                     if (mode === "24h") {
-                        timeline = [currentVal > 0 ? parseFloat((currentVal * 7.5).toFixed(1)) : 0.0];
+                        var numDays = 6;
+                        if (varKey === "pra") {
+                            // Day vs Rainfall (Bar graph)
+                            for (var d = 1; d <= numDays; d++) {
+                                labels.push("Day " + d);
+                                var dayVal = Math.max(0, currentVal * (1 + 0.3 * Math.sin(d)));
+                                timeline.push(parseFloat(dayVal.toFixed(1)));
+                            }
+                        } else {
+                            // Day vs Vorticity / Pressure at 24th, 48th, 72nd, etc. (Line graph)
+                            for (var d = 1; d <= numDays; d++) {
+                                var hourStep = d * 24;
+                                labels.push("Day " + d + " (+" + hourStep + "h)");
+                                var distFromPeak = Math.abs((d - 1) - activeIdx);
+                                if (varKey === "vort") {
+                                    var val = currentVal * Math.exp(-distFromPeak / 3.0);
+                                    timeline.push(parseFloat(val.toFixed(1)));
+                                } else { // ps
+                                    var depth = Math.max(0, 1012.0 - currentVal);
+                                    var val = 1012.0 - depth * Math.exp(-distFromPeak / 4.0);
+                                    timeline.push(parseFloat(val.toFixed(1)));
+                                }
+                            }
+                        }
                     } else {
+                        // Hourly Mode: Hour vs Value (Line Graph)
+                        var steps = 42;
                         for (var s = 0; s < steps; s++) {
+                            labels.push("+" + (s + 1) + "h");
                             var distFromPeak = Math.abs(s - activeIdx);
                             if (varKey === "pra") {
                                 var envelope = Math.exp(-Math.pow(distFromPeak / 6.5, 2));
@@ -4784,6 +4841,7 @@
                         lng: parseFloat(lng),
                         var: varKey,
                         mode: mode,
+                        labels: labels,
                         unit: getParameterInfo(varKey).unit,
                         data: timeline,
                         total: total,
@@ -4998,21 +5056,25 @@
                     var param = getParameterInfo(varKey);
                     var activeIdx = parseInt(slider.value) || 0;
                     var rawData = res.data || [];
-                    var labels = rawData.map((_, i) => "+" + (i + 1) + "h");
+                    var labels = res.labels || rawData.map((_, i) => "+" + (i + 1) + "h");
+
+                    // 24h Rainfall = Bar Graph; Hourly / Vorticity / Pressure = Line Graph
+                    var chartType = (accumMode === "24h" && varKey === "pra") ? 'bar' : 'line';
 
                     var pointBackgroundColors = rawData.map((_, i) => i === activeIdx ? '#ffffff' : param.color);
                     var pointRadii = rawData.map((_, i) => i === activeIdx ? 5 : (rawData.length > 20 ? 0 : 2));
 
                     popupChartInstance = new Chart(ctx, {
-                        type: (accumMode === "24h" && varKey === "pra") ? 'bar' : 'line',
+                        type: chartType,
                         data: {
                             labels: labels,
                             datasets: [{
                                 label: param.unit,
                                 data: rawData,
                                 borderColor: param.color,
-                                backgroundColor: param.bg,
-                                fill: true,
+                                backgroundColor: chartType === 'bar' ? param.color : param.bg,
+                                borderRadius: chartType === 'bar' ? 4 : 0,
+                                fill: chartType === 'line',
                                 tension: 0.25,
                                 borderWidth: 2,
                                 pointBackgroundColor: pointBackgroundColors,

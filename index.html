@@ -5291,6 +5291,7 @@
                             updateModalWithData(res);
                         });
                     }
+                } // <--- ADDED MISSING BRACE HERE (closes renderModalMeteogram)
 
                 function syncActiveStepMeteogram(stepIdx) {
                     var modal = document.getElementById('meteogram-modal');
@@ -5321,7 +5322,7 @@
                         chartInstance.data.datasets[0].pointRadius = rawDataModal.map((_, i) => i === stepIdx ? 6 : (rawDataModal.length > 20 ? 1 : 3));
                         chartInstance.update('none');
                     }
-                }
+                } // closes syncActiveStepMeteogram
 
                 // Save PNG snapshot of meteogram modal
                 var saveBtn = document.getElementById('modal-save-btn');
@@ -5334,15 +5335,15 @@
                                 link.download = `cress_meteogram_${modalCurrentVar}_${activePoint ? activePoint.lat + '_' + activePoint.lng : 'point'}.png`;
                                 link.href = canvas.toDataURL();
                                 link.click();
-                            }); // closes .then
-                        } // closes if (html2canvas)
-                    }); // closes addEventListener
-                } // <--- 1. CLOSES if (saveBtn)
+                            });
+                        }
+                    });
+                } // closes if (saveBtn)
 
-            } catch (e) { // <--- 2. CLOSES try { ... } and starts catch
+            } catch (e) { // closes try { ... }
                 console.error("Timeline init error:", e);
             }
-        })();
+        })(); // closes IIFE
     </script>
 
     <div class="folium-map" id="map_211b782df160be25a401b38cfaeed655"></div>

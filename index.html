@@ -4578,14 +4578,20 @@
 
                 varSelect.addEventListener('change', function () {
                     currentVar = this.value;
+                    modalCurrentVar = currentVar; // Keep modal variable tab in sync
                     activeFrames = varsData[currentVar][accumMode];
                     slider.max = activeFrames.length - 1;
                     legendContainer.innerHTML = getLegendHtml();
                     updateFrame(0);
 
-                    // Auto-update open meteogram popup or modal
-                    if (activePoint && activePoint.latlng) {
+                    // 1. Refresh active popup meteogram if open
+                    if (activePoint && activePoint.latlng && mapObj.hasLayer(activePopup)) {
                         renderPopupMeteogram(activePoint.latlng, activePoint.feature);
+                    }
+                    // 2. Refresh full meteogram modal simultaneously if open
+                    var modal = document.getElementById('meteogram-modal');
+                    if (modal && modal.style.display !== 'none' && activePoint) {
+                        renderModalMeteogram(activePoint.lat, activePoint.lng, modalCurrentVar, null);
                     }
                 });
 
@@ -4596,10 +4602,11 @@
                     legendContainer.innerHTML = getLegendHtml();
                     updateFrame(0);
 
-                    // Auto-update open meteogram popup or modal
-                    if (activePoint && activePoint.latlng) {
+                    // 1. Refresh active popup meteogram if open
+                    if (activePoint && activePoint.latlng && mapObj.hasLayer(activePopup)) {
                         renderPopupMeteogram(activePoint.latlng, activePoint.feature);
                     }
+                    // 2. Refresh full meteogram modal simultaneously if open
                     var modal = document.getElementById('meteogram-modal');
                     if (modal && modal.style.display !== 'none' && activePoint) {
                         renderModalMeteogram(activePoint.lat, activePoint.lng, modalCurrentVar, null);
@@ -5222,20 +5229,24 @@
                             extraVal.style.color = "#f43f5e";
                         }
 
-                        var labels = rawData.map((_, i) => "+" + (i + 1) + "h");
+                        // Dynamic x-axis labels (Day 1, Day 2... for 24h vs +01h, +02h... for Hourly)
+                        var labels = res.labels || rawData.map((_, i) => "+" + (i + 1) + "h");
+                        var chartType = (accumMode === "24h" && queryVar === "pra") ? 'bar' : 'line';
+
                         var pointBackgroundColors = rawData.map((_, i) => i === activeIdx ? '#ffffff' : param.color);
                         var pointRadii = rawData.map((_, i) => i === activeIdx ? 6 : (rawData.length > 20 ? 1 : 3));
 
                         chartInstance = new Chart(ctx, {
-                            type: (accumMode === "24h" && queryVar === "pra") ? 'bar' : 'line',
+                            type: chartType,
                             data: {
                                 labels: labels,
                                 datasets: [{
                                     label: param.unit,
                                     data: rawData,
                                     borderColor: param.color,
-                                    backgroundColor: param.bg,
-                                    fill: true,
+                                    backgroundColor: chartType === 'bar' ? param.color : param.bg,
+                                    borderRadius: chartType === 'bar' ? 4 : 0,
+                                    fill: chartType === 'line',
                                     tension: 0.2,
                                     borderWidth: 2.5,
                                     pointBackgroundColor: pointBackgroundColors,
@@ -5270,7 +5281,8 @@
                         });
                     }
 
-                    if (preloadedRes && preloadedRes.var === queryVar) {
+                    // Ensure preloaded cache matches both variable AND active accumulation mode
+                    if (preloadedRes && preloadedRes.var === queryVar && preloadedRes.mode === accumMode) {
                         updateModalWithData(preloadedRes);
                     } else {
                         var instantData = generateClientFallbackData(lat, lng, queryVar, accumMode);
@@ -5279,7 +5291,6 @@
                             updateModalWithData(res);
                         });
                     }
-                }
 
                 function syncActiveStepMeteogram(stepIdx) {
                     var modal = document.getElementById('meteogram-modal');

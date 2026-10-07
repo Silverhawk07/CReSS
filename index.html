@@ -3745,8 +3745,8 @@
                 }
 
                 function getStationTooltipHtml(st) {
-                    var warn = st.alertWarn || { level: 'NORMAL', text: 'Normal', color: '#4ade80' };[cite: 1]
-                    var regName = st.regionName || '';[cite: 1]
+                    var warn = st.alertWarn || { level: 'NORMAL', text: 'Normal', color: '#4ade80' };
+                    var regName = st.regionName || '';
                     var apiStr = (st.apiValue !== undefined) ? st.apiValue.toFixed(1) : '0.0';
                     var rainStr = (st.currentRain !== undefined) ? st.currentRain.toFixed(1) : '0.0';
                     var confStr = st.confidence || 'High';
@@ -3761,10 +3761,10 @@
                 }
 
                 function getStationPopupHtml(st) {
-                    var warn = st.alertWarn || { level: 'NORMAL', text: 'Normal', color: '#22c55e', badgeClass: 'badge-normal' };[cite: 1]
-                    var regName = st.regionName || 'Regional';[cite: 1]
-                    var t = REGIONAL_THRESHOLDS[st.regionId] || {};[cite: 1]
-                    var rainStr = (st.currentRain !== undefined) ? st.currentRain.toFixed(1) : '0.0';[cite: 1]
+                    var warn = st.alertWarn || { level: 'NORMAL', text: 'Normal', color: '#22c55e', badgeClass: 'badge-normal' };
+                    var regName = st.regionName || 'Regional';
+                    var t = REGIONAL_THRESHOLDS[st.regionId] || {};
+                    var rainStr = (st.currentRain !== undefined) ? st.currentRain.toFixed(1) : '0.0';
                     var apiStr = (st.apiValue !== undefined) ? st.apiValue.toFixed(1) : '0.0';
                     var p7Str = (st.past7DaysRain !== undefined) ? st.past7DaysRain.toFixed(1) : '25.0';
                     var confStr = st.confidence || 'High';

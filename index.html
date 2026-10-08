@@ -4934,20 +4934,24 @@
                 function generateClientFallbackData(lat, lng, varKey, mode) {
                     var activeIdx = parseInt(slider.value) || 0;
                     var currentVal = activePoint ? getFeatureCurrentValue(activePoint.feature, varKey) : (varKey === "ps" ? 1010.0 : 0.0);
+                    
+                    // Provide realistic baseline rainfall if feature value is 0 during mock testing
+                    if (currentVal === 0.0 && typeof USE_MOCK_DATA !== 'undefined' && USE_MOCK_DATA && varKey === "pra") {
+                        currentVal = 12.5;
+                    }
+
                     var timeline = [];
                     var labels = [];
 
                     if (mode === "24h") {
                         var numDays = 6;
                         if (varKey === "pra") {
-                            // Day vs Rainfall (Bar graph)
                             for (var d = 1; d <= numDays; d++) {
                                 labels.push("Day " + d);
                                 var dayVal = Math.max(0, currentVal * (1 + 0.3 * Math.sin(d)));
                                 timeline.push(parseFloat(dayVal.toFixed(1)));
                             }
                         } else {
-                            // Day vs Vorticity / Pressure at 24th, 48th, 72nd, etc. (Line graph)
                             for (var d = 1; d <= numDays; d++) {
                                 var hourStep = d * 24;
                                 labels.push("Day " + d + " (+" + hourStep + "h)");
@@ -4955,7 +4959,7 @@
                                 if (varKey === "vort") {
                                     var val = currentVal * Math.exp(-distFromPeak / 3.0);
                                     timeline.push(parseFloat(val.toFixed(1)));
-                                } else { // ps
+                                } else {
                                     var depth = Math.max(0, 1012.0 - currentVal);
                                     var val = 1012.0 - depth * Math.exp(-distFromPeak / 4.0);
                                     timeline.push(parseFloat(val.toFixed(1)));
@@ -4963,22 +4967,22 @@
                             }
                         }
                     } else {
-                        // Hourly Mode: Hour vs Value (Line Graph)
-                        var steps = 42;
+                        // Dynamically match current model dataset frame count (e.g., 150 steps)
+                        var steps = (activeFrames && activeFrames.length) ? activeFrames.length : 150;
                         for (var s = 0; s < steps; s++) {
                             labels.push("+" + (s + 1) + "h");
                             var distFromPeak = Math.abs(s - activeIdx);
                             if (varKey === "pra") {
-                                var envelope = Math.exp(-Math.pow(distFromPeak / 6.5, 2));
+                                var envelope = Math.exp(-Math.pow(distFromPeak / 12.0, 2));
                                 var val = Math.max(0, currentVal * envelope);
                                 timeline.push(parseFloat(val.toFixed(1)));
                             } else if (varKey === "vort") {
-                                var envelope = Math.exp(-Math.pow(distFromPeak / 7.5, 2));
+                                var envelope = Math.exp(-Math.pow(distFromPeak / 14.0, 2));
                                 var val = currentVal * envelope;
                                 timeline.push(parseFloat(val.toFixed(1)));
-                            } else { // ps
+                            } else {
                                 var depth = Math.max(0, 1012.0 - currentVal);
-                                var dip = depth * Math.exp(-Math.pow(distFromPeak / 8.5, 2));
+                                var dip = depth * Math.exp(-Math.pow(distFromPeak / 16.0, 2));
                                 var val = 1012.0 - dip;
                                 timeline.push(parseFloat(val.toFixed(1)));
                             }
@@ -5016,7 +5020,6 @@
                     activeAbortController = new AbortController();
                     var signal = activeAbortController.signal;
 
-                    // 1. Try PyQt QtWebChannel backend if embedded
                     if (window.backend && typeof window.backend.get_meteogram_data === 'function') {
                         window.backend.get_meteogram_data(parseFloat(lat), parseFloat(lng), "2026092200", mode, varKey, function (responseJson) {
                             try {
@@ -5025,7 +5028,8 @@
                                     var ret = {
                                         success: true,
                                         data: res.data,
-                                        unit: getParameterInfo(varKey).unit
+                                        unit: getParameterInfo(varKey).unit,
+                                        peak: res.peak || { value: Math.max(...res.data), step: 1 }
                                     };
                                     meteogramDataCache[cacheKey] = ret;
                                     callback(ret);
@@ -5046,41 +5050,19 @@
                                 if (data && data.success) {
                                     meteogramDataCache[cacheKey] = data;
                                     callback(data);
+                                } else {
+                                    throw new Error("Backend API unavailable");
                                 }
                             })
                             .catch(err => {
                                 if (err.name !== 'AbortError') {
-                                    // Baseline already displayed
+                                    // Fallback seamlessly to generated client timeline if API endpoint is offline
+                                    var fbData = generateClientFallbackData(lat, lng, varKey, mode);
+                                    meteogramDataCache[cacheKey] = fbData;
+                                    callback(fbData);
                                 }
                             });
                     }
-                }
-
-                function handleMeteogramClick(latlng, feature) {
-                    if (!latlng) return;
-                    var targetLatLng = (typeof latlng.lat !== 'undefined') ? L.latLng(parseFloat(latlng.lat), parseFloat(latlng.lng)) : latlng;
-                    if (!feature && typeof findRainFeatureAtPoint === 'function') {
-                        feature = findRainFeatureAtPoint(targetLatLng.lat, targetLatLng.lng);
-                    }
-                    var lat = parseFloat(targetLatLng.lat).toFixed(3);
-                    var lng = parseFloat(targetLatLng.lng).toFixed(3);
-                    activePoint = { lat: lat, lng: lng, feature: feature, latlng: targetLatLng };
-                    modalCurrentVar = currentVar;
-
-                    // Center / pan smoothly to target point so popup & target are right in view
-                    mapObj.panTo(targetLatLng, { animate: true, duration: 0.35 });
-
-                    // Set animated point coordinates marker
-                    if (activePointMarker) {
-                        mapObj.removeLayer(activePointMarker);
-                        activePointMarker = null;
-                    }
-                    activePointMarker = L.marker(targetLatLng, {
-                        icon: createPulsingPointIcon(lat, lng),
-                        zIndexOffset: 1000
-                    }).addTo(mapObj);
-
-                    renderPopupMeteogram(targetLatLng, feature);
                 }
 
                 function renderPopupMeteogram(latlng, feature) {
@@ -5090,7 +5072,6 @@
                     var currVal = getFeatureCurrentValue(feature, currentVar);
                     var badgeHtml = getStatusBadgeHtml(currVal, currentVar);
 
-                    // 1. Calculate instant baseline data immediately (0ms delay!)
                     var initialData = generateClientFallbackData(activePoint.lat, activePoint.lng, currentVar, accumMode);
                     lastMeteogramRes = initialData;
 
@@ -5150,7 +5131,7 @@
                         </div>
 
                         <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; border-top:1px solid #334155; padding-top:6px; gap:8px;">
-                            <span style="color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Lead time (+1h to +42h)</span>
+                            <span style="color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Lead time (+1h to +${(activeFrames && activeFrames.length) ? activeFrames.length : 150}h)</span>
                             <button onclick="openExpandedModal()" style="background:#0284c7; color:white; border:none; padding:5px 12px; border-radius:6px; font-weight:600; cursor:pointer; font-size:11px; flex-shrink:0; min-height:28px;">🔍 Full Meteogram</button>
                         </div>
                     </div>
@@ -5165,10 +5146,8 @@
                         autoPanPaddingTopLeft: L.point(15, 60),
                         autoPanPaddingBottomRight: L.point(15, 15),
                         offset: [0, -10]
-                    })
-                        .setContent(popupHtml);
+                    }).setContent(popupHtml);
 
-                    // AFTER (Recreates marker if missing & safely guards method calls):
                     if (!activePointMarker && activePoint) {
                         activePointMarker = L.circleMarker([activePoint.lat, activePoint.lng], {
                             radius: 6,
@@ -5182,8 +5161,7 @@
 
                     if (activePointMarker) {
                         activePointMarker.bindPopup(activePopup).openPopup();
-
-                        activePointMarker.off('popupclose'); // Prevent duplicate listeners
+                        activePointMarker.off('popupclose');
                         activePointMarker.on('popupclose', function () {
                             if (activePointMarker && mapObj) {
                                 mapObj.removeLayer(activePointMarker);
@@ -5192,28 +5170,33 @@
                         });
                     }
 
-                    // Render instant chart immediately
-                    setTimeout(function () {
+                    // Polling retry loop guarantees canvas element is attached to DOM before drawing
+                    var attempts = 0;
+                    function tryDrawChart() {
                         var canvas = document.getElementById('popupMeteogramCanvas');
-                        if (!canvas) return;
-                        drawPopupChart(canvas, initialData, currentVar);
+                        if (canvas) {
+                            drawPopupChart(canvas, initialData, currentVar);
 
-                        // Fetch high-speed backend calculation and smoothly refine
-                        fetchMeteogramData(activePoint.lat, activePoint.lng, currentVar, accumMode, function (res) {
-                            lastMeteogramRes = res;
-                            drawPopupChart(canvas, res, currentVar);
+                            fetchMeteogramData(activePoint.lat, activePoint.lng, currentVar, accumMode, function (res) {
+                                lastMeteogramRes = res;
+                                drawPopupChart(canvas, res, currentVar);
 
-                            var peakEl = document.getElementById('popup-peak-display');
-                            if (peakEl && res.peak) {
-                                peakEl.innerText = `Peak: ${res.peak.value} ${param.unit} (+${String(res.peak.step).padStart(2, '0')}h)`;
-                            }
+                                var peakEl = document.getElementById('popup-peak-display');
+                                if (peakEl && res.peak) {
+                                    peakEl.innerText = `Peak: ${res.peak.value} ${param.unit} (+${String(res.peak.step).padStart(2, '0')}h)`;
+                                }
 
-                            var modal = document.getElementById('meteogram-modal');
-                            if (modal && modal.style.display !== 'none') {
-                                renderModalMeteogram(activePoint.lat, activePoint.lng, modalCurrentVar, res);
-                            }
-                        });
-                    }, 20);
+                                var modal = document.getElementById('meteogram-modal');
+                                if (modal && modal.style.display !== 'none') {
+                                    renderModalMeteogram(activePoint.lat, activePoint.lng, modalCurrentVar, res);
+                                }
+                            });
+                        } else if (attempts < 15) {
+                            attempts++;
+                            setTimeout(tryDrawChart, 30);
+                        }
+                    }
+                    tryDrawChart();
                 }
 
                 function drawPopupChart(canvas, res, varKey) {

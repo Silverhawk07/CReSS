@@ -4145,7 +4145,7 @@
                 /* =========================================================================
                    TESTING HARNESS: SYNTHETIC DATA GENERATOR (Toggle to false for Production)
                    ========================================================================= */
-                const USE_MOCK_DATA = true;
+                const USE_MOCK_DATA = false;
 
                 function getMockForecastSequence() {
                     // Generates a 120-hour synthetic CReSS forecast curve simulating a tropical storm pulse
@@ -4320,6 +4320,25 @@
                 /**
                  * Synchronizes 7-AP AWS past rainfall + CReSS zonal max forecasts across all stations and regional cards.
                  */
+                // Helper to extract CReSS rainfall at specific coordinates from a GeoJSON frame
+                function getRainAtPointFromFrame(lat, lng, frameUrl) {
+                    var data = geoJsonCache[frameUrl];
+                    if (!data || !data.features) return 0.0;
+
+                    for (var i = data.features.length - 1; i >= 0; i--) {
+                        var f = data.features[i];
+                        if (!f.geometry || !f.geometry.coordinates) continue;
+                        var rings = (f.geometry.type === 'Polygon') ? [f.geometry.coordinates[0]] :
+                            (f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates.map(c => c[0]) : []);
+                        for (var r = 0; r < rings.length; r++) {
+                            if (rings[r] && isPointInRing(lng, lat, rings[r])) {
+                                return getFeatureCurrentValue(f, "pra");
+                            }
+                        }
+                    }
+                    return 0.0;
+                }
+
                 function syncAWSStationsRain(stepIdx) {
                     if (!awsStationsList || awsStationsList.length === 0) return;
 
@@ -4331,26 +4350,20 @@
                             var instantRain = getZonalMaxForecastForStation(st, currentGeoJsonLayer);
                             st.currentRain = instantRain;
 
-                            // Determine Station 7-AP Telemetry (from station properties or mock generator)
-                            var p7 = 25.0;
-                            if (st.past7DaysRain !== undefined && st.past7DaysRain !== null) {
-                                p7 = parseFloat(st.past7DaysRain);
-                            } else if (typeof USE_MOCK_DATA !== 'undefined' && USE_MOCK_DATA) {
-                                p7 = (typeof getMockPastRainForStation === 'function') ? getMockPastRainForStation(st.regionId) : 25.0;
-                            }
+                            // Determine Station 7-AP Telemetry (uses station telemetry if present, else falls back to regional baseline)
+                            var p7 = (st.past7DaysRain !== undefined && st.past7DaysRain !== null)
+                                ? parseFloat(st.past7DaysRain)
+                                : ((typeof getMockPastRainForStation === 'function') ? getMockPastRainForStation(st.regionId) : 25.0);
 
-                            // Determine forecast sequence for API calculation
+                            // Extract station-specific forecast sequence dynamically from CReSS GeoJSON frames
                             var forecastSeq = [];
-                            if (typeof USE_MOCK_DATA !== 'undefined' && USE_MOCK_DATA) {
-                                if (!window.mockForecastCache && typeof getMockForecastSequence === 'function') {
-                                    window.mockForecastCache = getMockForecastSequence();
-                                }
-                                forecastSeq = window.mockForecastCache || [];
-                            } else {
-                                forecastSeq = (lastMeteogramRes && lastMeteogramRes.data) ? lastMeteogramRes.data : [];
-                            }
+                            var praFrames = (varsData && varsData["pra"]) ? varsData["pra"][accumMode] : [];
+                            praFrames.forEach(function (frame) {
+                                var val = getRainAtPointFromFrame(st.lat, st.lng, frame.url);
+                                forecastSeq.push(val);
+                            });
 
-                            // Run 5-Day API Decay Engine
+                            // Run 5-Day API Decay Engine using station-specific CReSS forecast sequence
                             var apiRes = calculateAPI(p7, forecastSeq, stepIdx);
 
                             st.apiValue = apiRes.currentAPI;
@@ -4452,7 +4465,6 @@
                         regionalThresholdsLayer.setStyle(getRegionalFeatureStyle);
                     }
                 }
-
                 const awsSyncPromises = [
                     // ==================== CAR ====================
                     initSynchronizedAWSLayer('MANKAYAN', 'https://api.maptiler.com/data/019f44a0-c1f3-7d6c-a4cd-bf01ec8769e3/features.json?key=HnKlTumvQGjlZFqKA35V', 'LIGTAS MANKAYAN AWS', 'benguet'),
@@ -4897,6 +4909,14 @@
                         return varKey === "ps" ? 1010.0 : 0.0;
                     }
                     var props = feature.properties;
+
+                    // 1. Read real numerical values from GeoJSON properties
+                    var numVal = props.val ?? props.value ?? props.pra ?? props.vort ?? props.ps ?? props.rain;
+                    if (numVal !== undefined && numVal !== null && !isNaN(numVal)) {
+                        return parseFloat(numVal);
+                    }
+
+                    // 2. Fallback to hex color lookup if property is absent
                     var color = (props.fillColor || props.color || "").toUpperCase();
 
                     if (varKey === "pra") {
@@ -4908,7 +4928,7 @@
                             if (color === "#0000FF") return 17.5;
                             if (color === "#4B0082") return 7.5;
                             if (color === "#8B00FF") return 2.5;
-                            return 2.0;
+                            return 0.0;
                         }
                         if (color === "#FF0000") return 35.0;
                         if (color === "#FFA500") return 22.5;
@@ -4916,15 +4936,13 @@
                         if (color === "#00FF00") return 7.5;
                         if (color === "#0000FF") return 3.75;
                         if (color === "#8A2BE2") return 1.25;
-                        if (color === "#4B0082") return 7.5;
-                        if (color === "#8B00FF") return 2.5;
-                        return 2.0;
+                        return 0.0;
                     } else if (varKey === "vort") {
                         if (color === "#FF0000") return 25.0;
                         if (color === "#FFA500") return 15.0;
                         if (color === "#32CD32") return 0.0;
                         if (color === "#0000FF") return -15.0;
-                        return 5.0;
+                        return 0.0;
                     } else if (varKey === "ps") {
                         if (color === "#800080") return 975.0;
                         if (color === "#4B0082") return 988.0;

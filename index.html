@@ -719,8 +719,8 @@
                 style="font-size: 10px; color: #94a3b8; display: none;">▼</span>
         </div>
         <div id="summary-details" class="summary-extra">
-            <div><b>Model Init:</b> 22 Sep 2026 08:00 AM PHT</div>
-            <div><b>Available Frames:</b> 42 hourly steps</div>
+            <div><b>Model Init:</b> <span id="summary-model-init">Loading init time...</span></div>
+            <div><b>Available Frames:</b> Loading frames...</div>
         </div>
         <div><b>Peak Rain:</b> <span style="color: #facc15; font-weight: bold;">218.1 mm</span></div>
     </div>
@@ -873,13 +873,13 @@
                 Loading forecast timeline...</div>
             <div id="step-lead-badge"
                 style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 4px; padding: 2px 7px; font-size: 10px; font-weight: 700; flex-shrink: 0;">
-                +01h / 42h</div>
+                +01h / --h</div>
         </div>
         <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
             <button id="play-btn"
                 style="background: #16a34a; color: white; border: none; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 12px; min-height: 36px; min-width: 74px; display: inline-flex; align-items: center; justify-content: center; transition: all 0.2s; box-shadow: 0 4px 10px rgba(22, 163, 74, 0.4);">▶
                 Play</button>
-            <input type="range" id="time-slider" min="0" max="41" value="0"
+            <input type="range" id="time-slider" min="0" max="0" value="0"
                 style="flex: 1; min-width: 0; cursor: pointer;">
             <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: #94a3b8; cursor: pointer; user-select: none; flex-shrink: 0;">
                 <input type="checkbox" id="loop-checkbox" checked style="cursor: pointer; accent-color: #38bdf8;"> Loop
@@ -3286,6 +3286,34 @@
                 var accumMode = "hourly";
                 var activeFrames = varsData[currentVar][accumMode];
 
+                function syncTimelineLimits() {
+                    activeFrames = (varsData && varsData[currentVar] && varsData[currentVar][accumMode]) 
+                        ? varsData[currentVar][accumMode] 
+                        : [];
+                    
+                    if (activeFrames.length > 0) {
+                        slider.max = activeFrames.length - 1;
+
+                        // Dynamically derive Model Init from the first frame's valid date/pht_str
+                        var modelInitEl = document.getElementById('summary-model-init');
+                        if (modelInitEl) {
+                            if (activeFrames[0].model_init) {
+                                modelInitEl.innerText = activeFrames[0].model_init;
+                            } else if (activeFrames[0].pht_str) {
+                                // Displays the start valid time (or step +000h offset)
+                                modelInitEl.innerText = activeFrames[0].pht_str;
+                            }
+                        }
+                    } else {
+                        slider.max = 0;
+                    }
+
+                    var frameCountEl = document.querySelector('#summary-details div:nth-child(2)');
+                    if (frameCountEl) {
+                        frameCountEl.innerHTML = `<b>Available Frames:</b> ${activeFrames.length} hourly steps`;
+                    }
+                }
+
                 var isPlaying = false;
                 var timerId = null;
                 var chartInstance = null;
@@ -4689,6 +4717,7 @@
                     }
                 }
 
+                syncTimelineLimits();
                 updateFrame(0);
 
                 slider.addEventListener('input', function () {
@@ -4729,17 +4758,14 @@
 
                 varSelect.addEventListener('change', function () {
                     currentVar = this.value;
-                    modalCurrentVar = currentVar; // Keep modal variable tab in sync
-                    activeFrames = varsData[currentVar][accumMode];
-                    slider.max = activeFrames.length - 1;
+                    modalCurrentVar = currentVar;
+                    syncTimelineLimits();
                     legendContainer.innerHTML = getLegendHtml();
                     updateFrame(0);
 
-                    // 1. Refresh active popup meteogram if open
                     if (activePoint && activePoint.latlng && mapObj.hasLayer(activePopup)) {
                         renderPopupMeteogram(activePoint.latlng, activePoint.feature);
                     }
-                    // 2. Refresh full meteogram modal simultaneously if open
                     var modal = document.getElementById('meteogram-modal');
                     if (modal && modal.style.display !== 'none' && activePoint) {
                         renderModalMeteogram(activePoint.lat, activePoint.lng, modalCurrentVar, null);
@@ -4748,16 +4774,13 @@
 
                 accumSelect.addEventListener('change', function () {
                     accumMode = this.value;
-                    activeFrames = varsData[currentVar][accumMode];
-                    slider.max = activeFrames.length - 1;
+                    syncTimelineLimits();
                     legendContainer.innerHTML = getLegendHtml();
                     updateFrame(0);
 
-                    // 1. Refresh active popup meteogram if open
                     if (activePoint && activePoint.latlng && mapObj.hasLayer(activePopup)) {
                         renderPopupMeteogram(activePoint.latlng, activePoint.feature);
                     }
-                    // 2. Refresh full meteogram modal simultaneously if open
                     var modal = document.getElementById('meteogram-modal');
                     if (modal && modal.style.display !== 'none' && activePoint) {
                         renderModalMeteogram(activePoint.lat, activePoint.lng, modalCurrentVar, null);
@@ -4938,51 +4961,38 @@
                 function generateClientFallbackData(lat, lng, varKey, mode) {
                     var activeIdx = parseInt(slider.value) || 0;
                     var currentVal = activePoint ? getFeatureCurrentValue(activePoint.feature, varKey) : (varKey === "ps" ? 1010.0 : 0.0);
+
+                    if (currentVal === 0.0 && typeof USE_MOCK_DATA !== 'undefined' && USE_MOCK_DATA && varKey === "pra") {
+                        currentVal = 12.5;
+                    }
+
                     var timeline = [];
                     var labels = [];
 
                     if (mode === "24h") {
-                        var numDays = 6;
-                        if (varKey === "pra") {
-                            // Day vs Rainfall (Bar graph)
-                            for (var d = 1; d <= numDays; d++) {
-                                labels.push("Day " + d);
-                                var dayVal = Math.max(0, currentVal * (1 + 0.3 * Math.sin(d)));
-                                timeline.push(parseFloat(dayVal.toFixed(1)));
-                            }
-                        } else {
-                            // Day vs Vorticity / Pressure at 24th, 48th, 72nd, etc. (Line graph)
-                            for (var d = 1; d <= numDays; d++) {
-                                var hourStep = d * 24;
-                                labels.push("Day " + d + " (+" + hourStep + "h)");
-                                var distFromPeak = Math.abs((d - 1) - activeIdx);
-                                if (varKey === "vort") {
-                                    var val = currentVal * Math.exp(-distFromPeak / 3.0);
-                                    timeline.push(parseFloat(val.toFixed(1)));
-                                } else { // ps
-                                    var depth = Math.max(0, 1012.0 - currentVal);
-                                    var val = 1012.0 - depth * Math.exp(-distFromPeak / 4.0);
-                                    timeline.push(parseFloat(val.toFixed(1)));
-                                }
-                            }
+                        var totalHours = (activeFrames && activeFrames.length) ? activeFrames.length : 150;
+                        var numDays = Math.max(1, Math.ceil(totalHours / 24));
+                        for (var d = 1; d <= numDays; d++) {
+                            labels.push("Day " + d);
+                            var dayVal = Math.max(0, currentVal * (1 + 0.3 * Math.sin(d)));
+                            timeline.push(parseFloat(dayVal.toFixed(1)));
                         }
                     } else {
-                        // Hourly Mode: Hour vs Value (Line Graph)
-                        var steps = 42;
+                        var steps = (activeFrames && activeFrames.length) ? activeFrames.length : 150;
                         for (var s = 0; s < steps; s++) {
                             labels.push("+" + (s + 1) + "h");
                             var distFromPeak = Math.abs(s - activeIdx);
                             if (varKey === "pra") {
-                                var envelope = Math.exp(-Math.pow(distFromPeak / 6.5, 2));
+                                var envelope = Math.exp(-Math.pow(distFromPeak / 12.0, 2));
                                 var val = Math.max(0, currentVal * envelope);
                                 timeline.push(parseFloat(val.toFixed(1)));
                             } else if (varKey === "vort") {
-                                var envelope = Math.exp(-Math.pow(distFromPeak / 7.5, 2));
+                                var envelope = Math.exp(-Math.pow(distFromPeak / 14.0, 2));
                                 var val = currentVal * envelope;
                                 timeline.push(parseFloat(val.toFixed(1)));
-                            } else { // ps
+                            } else {
                                 var depth = Math.max(0, 1012.0 - currentVal);
-                                var dip = depth * Math.exp(-Math.pow(distFromPeak / 8.5, 2));
+                                var dip = depth * Math.exp(-Math.pow(distFromPeak / 16.0, 2));
                                 var val = 1012.0 - dip;
                                 timeline.push(parseFloat(val.toFixed(1)));
                             }

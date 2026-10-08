@@ -4339,57 +4339,74 @@
                     return 0.0;
                 }
 
-                // Station forecast timeline cache
-                var stationForecastsCache = {};
+                // Caches hourly sequence per station for instant timeline scrubbing
+                var stationHourlyCache = {};
 
                 function invalidateStationCaches() {
                     stationForecastsCache = {};
+                    stationHourlyCache = {};
                 }
 
-                function getStationForecastSeq(st) {
-                    var cacheKey = (st.id || (st.lat + '_' + st.lng)) + '_' + accumMode;
-                    if (stationForecastsCache[cacheKey]) {
-                        return stationForecastsCache[cacheKey];
+                function getStationHourlyForecastSeq(st) {
+                    var cacheKey = st.id || (st.lat + '_' + st.lng);
+                    if (stationHourlyCache[cacheKey]) {
+                        return stationHourlyCache[cacheKey];
                     }
 
                     var seq = [];
-                    var praFrames = (varsData && varsData["pra"]) ? varsData["pra"][accumMode] : [];
-                    praFrames.forEach(function (frame) {
+                    // Always use hourly CReSS frames for continuous API decay calculation
+                    var praHourlyFrames = (varsData && varsData["pra"] && varsData["pra"]["hourly"]) 
+                        ? varsData["pra"]["hourly"] 
+                        : ((varsData && varsData["pra"]) ? varsData["pra"][accumMode] : []);
+
+                    praHourlyFrames.forEach(function (frame) {
                         var val = getRainAtPointFromFrame(st.lat, st.lng, frame.url);
                         seq.push(val);
                     });
 
-                    stationForecastsCache[cacheKey] = seq;
+                    stationHourlyCache[cacheKey] = seq;
                     return seq;
                 }
-                
+
                 function syncAWSStationsRain(stepIdx) {
                     if (!awsStationsList || awsStationsList.length === 0) return;
 
+                    // Convert 24h stepIdx to corresponding hourly index (Step 0 = Hour 23 / Day 1 mark)
+                    var hourlyStepIdx = (accumMode === "24h") 
+                        ? Math.max(0, (stepIdx + 1) * 24 - 1) 
+                        : stepIdx;
+
+                    // 1. Evaluate API soil moisture & hazard alerts for each AWS site
                     awsStationsList.forEach(function (st) {
                         if (st.lat !== null && st.lng !== null) {
                             
+                            // Extract peak forecast rain inside station's buffer zone from current frame
                             var instantRain = getZonalMaxForecastForStation(st, currentGeoJsonLayer);
                             st.currentRain = instantRain;
 
+                            // 7-AP antecedent precipitation baseline
                             var p7 = (st.past7DaysRain !== undefined && st.past7DaysRain !== null)
                                 ? parseFloat(st.past7DaysRain)
                                 : ((typeof getMockPastRainForStation === 'function') ? getMockPastRainForStation(st.regionId) : 25.0);
 
-                            // FAST: Retrieve pre-cached spatial sequence instead of running point-in-polygon repeatedly
-                            var forecastSeq = getStationForecastSeq(st);
+                            // Fetch hourly forecast sequence at station
+                            var hourlySeq = getStationHourlyForecastSeq(st);
 
-                            var apiRes = calculateAPI(p7, forecastSeq, stepIdx);
+                            // Calculate API decayed up to the target hourly step
+                            var targetStep = Math.min(hourlyStepIdx, Math.max(0, hourlySeq.length - 1));
+                            var apiRes = calculateAPI(p7, hourlySeq, targetStep);
 
                             st.apiValue = apiRes.currentAPI;
                             st.activeDay = apiRes.activeDay;
                             st.confidence = apiRes.confidenceTier;
                             st.past7DaysRain = p7;
 
+                            // Calculate alert warning level based on regional API threshold
                             var warn = getWarningForValue(st.regionId, st.apiValue);
                             warn.maxVal = st.apiValue;
                             st.alertWarn = warn;
 
+                            // Update Leaflet marker and tooltips
                             if (st.marker) {
                                 updateStationMarkerStyle(st);
                                 if (typeof st.marker.setTooltipContent === 'function') {
@@ -4397,13 +4414,14 @@
                                 }
                             }
 
+                            // Update 20km circular buffer polygon
                             if (st.hazardLayer) {
                                 st.hazardLayer.setStyle(getHazardZoneStyle(st));
                             }
                         }
                     });
 
-                    // 2. Synchronize Regional Risk Monitor Cards driven by localized 20km AWS station alerts
+                    // 2. Synchronize Regional Risk Monitor Cards
                     var priority = { 'NORMAL': 0, 'YELLOW': 1, 'ORANGE': 2, 'RED': 3 };
                     var highestAlertLevel = 'NORMAL';
 
@@ -4436,7 +4454,7 @@
                             highestAlertLevel = highestStationWarn.level;
                         }
 
-                        // Update Regional UI Chips
+                        // Update UI Cards/Chips
                         var rainEl = document.getElementById('rain-' + ridKey);
                         var badgeEl = document.getElementById('badge-' + ridKey);
                         var chipEl = document.getElementById('chip-' + ridKey);

@@ -4339,31 +4339,46 @@
                     return 0.0;
                 }
 
+                // Station forecast timeline cache
+                var stationForecastsCache = {};
+
+                function invalidateStationCaches() {
+                    stationForecastsCache = {};
+                }
+
+                function getStationForecastSeq(st) {
+                    var cacheKey = (st.id || (st.lat + '_' + st.lng)) + '_' + accumMode;
+                    if (stationForecastsCache[cacheKey]) {
+                        return stationForecastsCache[cacheKey];
+                    }
+
+                    var seq = [];
+                    var praFrames = (varsData && varsData["pra"]) ? varsData["pra"][accumMode] : [];
+                    praFrames.forEach(function (frame) {
+                        var val = getRainAtPointFromFrame(st.lat, st.lng, frame.url);
+                        seq.push(val);
+                    });
+
+                    stationForecastsCache[cacheKey] = seq;
+                    return seq;
+                }
+                
                 function syncAWSStationsRain(stepIdx) {
                     if (!awsStationsList || awsStationsList.length === 0) return;
 
-                    // 1. Evaluate API soil moisture & localized 20km hazard zones for each AWS site
                     awsStationsList.forEach(function (st) {
                         if (st.lat !== null && st.lng !== null) {
                             
-                            // Extract peak (zonal max) forecast rain inside station's 20km buffer zone
                             var instantRain = getZonalMaxForecastForStation(st, currentGeoJsonLayer);
                             st.currentRain = instantRain;
 
-                            // Determine Station 7-AP Telemetry (uses station telemetry if present, else falls back to regional baseline)
                             var p7 = (st.past7DaysRain !== undefined && st.past7DaysRain !== null)
                                 ? parseFloat(st.past7DaysRain)
                                 : ((typeof getMockPastRainForStation === 'function') ? getMockPastRainForStation(st.regionId) : 25.0);
 
-                            // Extract station-specific forecast sequence dynamically from CReSS GeoJSON frames
-                            var forecastSeq = [];
-                            var praFrames = (varsData && varsData["pra"]) ? varsData["pra"][accumMode] : [];
-                            praFrames.forEach(function (frame) {
-                                var val = getRainAtPointFromFrame(st.lat, st.lng, frame.url);
-                                forecastSeq.push(val);
-                            });
+                            // FAST: Retrieve pre-cached spatial sequence instead of running point-in-polygon repeatedly
+                            var forecastSeq = getStationForecastSeq(st);
 
-                            // Run 5-Day API Decay Engine using station-specific CReSS forecast sequence
                             var apiRes = calculateAPI(p7, forecastSeq, stepIdx);
 
                             st.apiValue = apiRes.currentAPI;
@@ -4371,12 +4386,10 @@
                             st.confidence = apiRes.confidenceTier;
                             st.past7DaysRain = p7;
 
-                            // Calculate alert warning level based on regional API threshold
                             var warn = getWarningForValue(st.regionId, st.apiValue);
                             warn.maxVal = st.apiValue;
                             st.alertWarn = warn;
 
-                            // Update Leaflet marker and tooltips
                             if (st.marker) {
                                 updateStationMarkerStyle(st);
                                 if (typeof st.marker.setTooltipContent === 'function') {
@@ -4384,7 +4397,6 @@
                                 }
                             }
 
-                            // Update 20km circular buffer polygon
                             if (st.hazardLayer) {
                                 st.hazardLayer.setStyle(getHazardZoneStyle(st));
                             }
@@ -4786,6 +4798,7 @@
 
                 accumSelect.addEventListener('change', function () {
                     accumMode = this.value;
+                    invalidateStationCaches();
                     syncTimelineLimits();
                     legendContainer.innerHTML = getLegendHtml();
                     updateFrame(0);
@@ -4980,40 +4993,55 @@
                     var activeIdx = parseInt(slider.value) || 0;
                     var currentVal = activePoint ? getFeatureCurrentValue(activePoint.feature, varKey) : (varKey === "ps" ? 1010.0 : 0.0);
 
-                    if (currentVal === 0.0 && typeof USE_MOCK_DATA !== 'undefined' && USE_MOCK_DATA && varKey === "pra") {
-                        currentVal = 12.5;
-                    }
-
                     var timeline = [];
                     var labels = [];
 
+                    // Get current variable frames based on active accumulation mode (hourly or 24h)
+                    var targetFrames = (varsData && varsData[varKey] && varsData[varKey][mode]) 
+                        ? varsData[varKey][mode] 
+                        : activeFrames;
+
                     if (mode === "24h") {
-                        var totalHours = (activeFrames && activeFrames.length) ? activeFrames.length : 150;
-                        var numDays = Math.max(1, Math.ceil(totalHours / 24));
-                        for (var d = 1; d <= numDays; d++) {
-                            labels.push("Day " + d);
-                            var dayVal = Math.max(0, currentVal * (1 + 0.3 * Math.sin(d)));
-                            timeline.push(parseFloat(dayVal.toFixed(1)));
+                        // In 24h mode, each frame in targetFrames represents 1 Day (24-hour block)
+                        var totalDays = (targetFrames && targetFrames.length) ? targetFrames.length : 10;
+                        
+                        for (var d = 0; d < totalDays; d++) {
+                            var dayNum = d + 1;
+                            labels.push("Day " + dayNum + " (+" + (dayNum * 24) + "h)");
+
+                            // Extract real spatial value from CReSS GeoJSON frame if available
+                            var frameVal = 0.0;
+                            if (targetFrames[d] && targetFrames[d].url && typeof getRainAtPointFromFrame === 'function') {
+                                frameVal = getRainAtPointFromFrame(lat, lng, targetFrames[d].url);
+                            } else {
+                                // Fallback math curve if frame isn't loaded yet
+                                frameVal = Math.max(0, currentVal * (1 + 0.3 * Math.sin(dayNum)));
+                            }
+                            timeline.push(parseFloat(frameVal.toFixed(1)));
                         }
                     } else {
-                        var steps = (activeFrames && activeFrames.length) ? activeFrames.length : 150;
-                        for (var s = 0; s < steps; s++) {
+                        // In hourly mode, targetFrames has 1 frame per hour (up to 240 steps)
+                        var totalSteps = (targetFrames && targetFrames.length) ? targetFrames.length : 240;
+                        
+                        for (var s = 0; s < totalSteps; s++) {
                             labels.push("+" + (s + 1) + "h");
-                            var distFromPeak = Math.abs(s - activeIdx);
-                            if (varKey === "pra") {
-                                var envelope = Math.exp(-Math.pow(distFromPeak / 12.0, 2));
-                                var val = Math.max(0, currentVal * envelope);
-                                timeline.push(parseFloat(val.toFixed(1)));
-                            } else if (varKey === "vort") {
-                                var envelope = Math.exp(-Math.pow(distFromPeak / 14.0, 2));
-                                var val = currentVal * envelope;
-                                timeline.push(parseFloat(val.toFixed(1)));
+
+                            var frameVal = 0.0;
+                            if (targetFrames[s] && targetFrames[s].url && typeof getRainAtPointFromFrame === 'function') {
+                                frameVal = getRainAtPointFromFrame(lat, lng, targetFrames[s].url);
                             } else {
-                                var depth = Math.max(0, 1012.0 - currentVal);
-                                var dip = depth * Math.exp(-Math.pow(distFromPeak / 16.0, 2));
-                                var val = 1012.0 - dip;
-                                timeline.push(parseFloat(val.toFixed(1)));
+                                // Fallback envelope if frame isn't loaded yet
+                                var distFromPeak = Math.abs(s - activeIdx);
+                                if (varKey === "pra") {
+                                    frameVal = Math.max(0, currentVal * Math.exp(-Math.pow(distFromPeak / 12.0, 2)));
+                                } else if (varKey === "vort") {
+                                    frameVal = currentVal * Math.exp(-Math.pow(distFromPeak / 14.0, 2));
+                                } else {
+                                    var depth = Math.max(0, 1012.0 - currentVal);
+                                    frameVal = 1012.0 - (depth * Math.exp(-Math.pow(distFromPeak / 16.0, 2)));
+                                }
                             }
+                            timeline.push(parseFloat(frameVal.toFixed(1)));
                         }
                     }
 
@@ -5034,7 +5062,6 @@
                         peak: { value: peakVal, step: peakStep }
                     };
                 }
-
                 function fetchMeteogramData(lat, lng, varKey, mode, callback) {
                     var cacheKey = `${lat}_${lng}_${varKey}_${mode}`;
                     if (meteogramDataCache[cacheKey]) {

@@ -4878,7 +4878,10 @@
                             var isLoop = document.getElementById('loop-checkbox') ? document.getElementById('loop-checkbox').checked : true;
                             if (curr >= activeFrames.length - 1) {
                                 if (isLoop) {
+                                    // Reset API cache and force station/regional metrics back to Step 0
+                                    invalidateStationCaches();
                                     updateFrame(0);
+                                    syncAWSStationsRain(0);
                                 } else {
                                     clearInterval(timerId);
                                     isPlaying = false;

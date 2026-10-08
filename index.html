@@ -4377,8 +4377,7 @@
                 // 2. Updated Cache Generator: Does NOT cache incomplete/unloaded frame sequences
                 function getStationHourlyForecastSeq(st) {
                     var cacheKey = (st.id || (st.lat + '_' + st.lng));
-                    
-                    // Check if valid cache exists
+
                     if (stationHourlyCache[cacheKey] && stationHourlyCache[cacheKey].isComplete) {
                         return stationHourlyCache[cacheKey].seq;
                     }
@@ -4393,11 +4392,11 @@
                         if (frame && frame.url && (geoJsonCache[frame.url] || Object.keys(geoJsonCache).some(k => k.endsWith(frame.url)))) {
                             loadedCount++;
                         }
-                        var val = getRainAtPointFromFrame(st.lat, st.lng, frame ? frame.url : null);
+                        // Uses fast O(1) lookup
+                        var val = getRainForStationFromFrame(st, frame ? frame.url : null);
                         seq.push(val);
                     });
 
-                    // Only set permanent cache if at least 50% of CReSS GeoJSON frames are downloaded
                     var isComplete = praHourlyFrames.length > 0 && (loadedCount / praHourlyFrames.length) >= 0.5;
                     if (isComplete) {
                         stationHourlyCache[cacheKey] = {
@@ -4408,7 +4407,60 @@
 
                     return seq;
                 }
+                
+                // 1. One-time index builder
+                function buildStationGridIndices(geoJsonData) {
+                    if (!geoJsonData || !geoJsonData.features || !awsStationsList) return;
 
+                    var features = geoJsonData.features;
+
+                    awsStationsList.forEach(function (st) {
+                        if (st.gridFeatureIndex !== undefined || st.lat === null || st.lng === null) return;
+
+                        for (var i = 0; i < features.length; i++) {
+                            var f = features[i];
+                            if (!f.geometry || !f.geometry.coordinates) continue;
+
+                            var rings = (f.geometry.type === 'Polygon') ? [f.geometry.coordinates[0]] :
+                                (f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates.map(c => c[0]) : []);
+
+                            var isInside = false;
+                            for (var r = 0; r < rings.length; r++) {
+                                if (rings[r] && isPointInRing(st.lng, st.lat, rings[r])) {
+                                    isInside = true;
+                                    break;
+                                }
+                            }
+
+                            if (isInside) {
+                                st.gridFeatureIndex = i; // Save exact feature index on station object
+                                break;
+                            }
+                        }
+                    });
+                }
+
+                // 2. O(1) direct feature lookup
+                function getRainForStationFromFrame(st, frameUrl) {
+                    if (!frameUrl) return 0.0;
+
+                    var data = geoJsonCache[frameUrl];
+                    if (!data) {
+                        var cleanKey = Object.keys(geoJsonCache).find(k => k.endsWith(frameUrl) || frameUrl.endsWith(k));
+                        if (cleanKey) data = geoJsonCache[cleanKey];
+                    }
+
+                    if (!data || !data.features) return 0.0;
+
+                    // O(1) Direct Lookup
+                    if (st.gridFeatureIndex !== undefined && data.features[st.gridFeatureIndex]) {
+                        return getFeatureCurrentValue(data.features[st.gridFeatureIndex], "pra");
+                    }
+
+                    // Fallback search if station is not indexed yet
+                    return getRainAtPointFromFrame(st.lat, st.lng, frameUrl);
+                }
+                
                 function syncAWSStationsRain(stepIdx) {
                     if (!awsStationsList || awsStationsList.length === 0) return;
 
@@ -4751,6 +4803,7 @@
                             })
                             .then(data => {
                                 geoJsonCache[url] = data;
+                                buildStationGridIndices(data);
                                 invalidateStationCaches();
                                 geoJsonLayer.clearLayers();
                                 geoJsonLayer.addData(data);
@@ -5626,7 +5679,7 @@
             ...{
                 "zoom": 5,
                 "zoomControl": true,
-                "preferCanvas": false,
+                "preferCanvas": true,
             }
 
         }

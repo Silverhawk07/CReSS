@@ -4321,50 +4321,91 @@
                  * Synchronizes 7-AP AWS past rainfall + CReSS zonal max forecasts across all stations and regional cards.
                  */
                 // Helper to extract CReSS rainfall at specific coordinates from a GeoJSON frame
+                // Station forecast cache
+                var stationHourlyCache = {};
+
+                function invalidateStationCaches() {
+                    stationHourlyCache = {};
+                }
+
+                // 1. Updated Helper: Extracts rain at point with a spatial tolerance fallback
                 function getRainAtPointFromFrame(lat, lng, frameUrl) {
+                    if (!frameUrl) return 0.0;
+                    
+                    // Check direct URL key or loose key match in geoJsonCache
                     var data = geoJsonCache[frameUrl];
-                    if (!data || !data.features) return 0.0;
+                    if (!data) {
+                        var cleanKey = Object.keys(geoJsonCache).find(k => k.endsWith(frameUrl) || frameUrl.endsWith(k));
+                        if (cleanKey) data = geoJsonCache[cleanKey];
+                    }
+                    
+                    if (!data || !data.features || data.features.length === 0) return 0.0;
+
+                    var maxValFound = 0.0;
 
                     for (var i = data.features.length - 1; i >= 0; i--) {
                         var f = data.features[i];
                         if (!f.geometry || !f.geometry.coordinates) continue;
+
+                        var val = getFeatureCurrentValue(f, "pra");
+                        
+                        // Point-in-polygon check
                         var rings = (f.geometry.type === 'Polygon') ? [f.geometry.coordinates[0]] :
                             (f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates.map(c => c[0]) : []);
+                        
                         for (var r = 0; r < rings.length; r++) {
                             if (rings[r] && isPointInRing(lng, lat, rings[r])) {
-                                return getFeatureCurrentValue(f, "pra");
+                                return val;
+                            }
+                        }
+
+                        // Spatial tolerance check (0.15 deg ~ 15km buffer) to catch gridded mesh edges
+                        if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
+                            var bbox = f.bbox || [];
+                            if (bbox.length === 4) {
+                                if (lng >= bbox[0] - 0.15 && lng <= bbox[2] + 0.15 &&
+                                    lat >= bbox[1] - 0.15 && lat <= bbox[3] + 0.15) {
+                                    if (val > maxValFound) maxValFound = val;
+                                }
                             }
                         }
                     }
-                    return 0.0;
+                    
+                    return maxValFound;
                 }
 
-                // Caches hourly sequence per station for instant timeline scrubbing
-                var stationHourlyCache = {};
-
-                function invalidateStationCaches() {
-                    stationForecastsCache = {};
-                    stationHourlyCache = {};
-                }
-
+                // 2. Updated Cache Generator: Does NOT cache incomplete/unloaded frame sequences
                 function getStationHourlyForecastSeq(st) {
-                    var cacheKey = st.id || (st.lat + '_' + st.lng);
-                    if (stationHourlyCache[cacheKey]) {
-                        return stationHourlyCache[cacheKey];
+                    var cacheKey = (st.id || (st.lat + '_' + st.lng));
+                    
+                    // Check if valid cache exists
+                    if (stationHourlyCache[cacheKey] && stationHourlyCache[cacheKey].isComplete) {
+                        return stationHourlyCache[cacheKey].seq;
                     }
 
                     var seq = [];
-                    // Always use hourly CReSS frames for continuous API decay calculation
                     var praHourlyFrames = (varsData && varsData["pra"] && varsData["pra"]["hourly"]) 
                         ? varsData["pra"]["hourly"] 
                         : ((varsData && varsData["pra"]) ? varsData["pra"][accumMode] : []);
 
+                    var loadedCount = 0;
                     praHourlyFrames.forEach(function (frame) {
-                        var val = getRainAtPointFromFrame(st.lat, st.lng, frame.url);
+                        if (frame && frame.url && (geoJsonCache[frame.url] || Object.keys(geoJsonCache).some(k => k.endsWith(frame.url)))) {
+                            loadedCount++;
+                        }
+                        var val = getRainAtPointFromFrame(st.lat, st.lng, frame ? frame.url : null);
                         seq.push(val);
                     });
 
-                    stationHourlyCache[cacheKey] = seq;
+                    // Only set permanent cache if at least 50% of CReSS GeoJSON frames are downloaded
+                    var isComplete = praHourlyFrames.length > 0 && (loadedCount / praHourlyFrames.length) >= 0.5;
+                    if (isComplete) {
+                        stationHourlyCache[cacheKey] = {
+                            seq: seq,
+                            isComplete: true
+                        };
+                    }
+
                     return seq;
                 }
 
@@ -4710,6 +4751,7 @@
                             })
                             .then(data => {
                                 geoJsonCache[url] = data;
+                                invalidateStationCaches();
                                 geoJsonLayer.clearLayers();
                                 geoJsonLayer.addData(data);
                                 if (currentVar === "pra") {

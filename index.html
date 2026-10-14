@@ -4182,74 +4182,38 @@
                    Confidence: Days 1-3 (High), Days 4-5 (Moderate)
                    ========================================================================= */
                 function calculateAPI(past7DaysRain, hourlyForecastSeq, currentStepIdx) {
-                    // Ground-truth 7-day past AWS rainfall (7-AP in mm); default baseline if station telemetry offline
                     var p7 = (past7DaysRain !== undefined && past7DaysRain !== null) ? parseFloat(past7DaysRain) : 25.0;
 
-                    // Helper to calculate total forecast rainfall within specific hourly index bounds [start, end)
-                    function sumRange(startIdx, endIdx) {
-                        if (!hourlyForecastSeq || hourlyForecastSeq.length === 0) return 0.0;
-                        var sum = 0.0;
-                        var limit = Math.min(endIdx, hourlyForecastSeq.length);
-                        for (var i = startIdx; i < limit; i++) {
-                            sum += (parseFloat(hourlyForecastSeq[i]) || 0.0);
+                    // Baseline soil moisture from 7-day past telemetry
+                    var api = 0.8 * p7;
+
+                    // Hourly drainage decay factor equivalent to 0.80 per 24 hours (k = 0.8^(1/24))
+                    var k_hourly = Math.pow(0.80, 1.0 / 24.0); // ~0.99074
+
+                    var targetStep = Math.min(currentStepIdx, (hourlyForecastSeq ? hourlyForecastSeq.length - 1 : 0));
+
+                    // Accumulate soil moisture step-by-step up to the active time step
+                    for (var i = 0; i <= targetStep; i++) {
+                        api = api * k_hourly;
+
+                        // Skip 6-hour NWP model spin-up buffer (+01h to +06h, indices 0 to 5)
+                        if (i >= 6 && hourlyForecastSeq && hourlyForecastSeq[i] !== undefined) {
+                            api += (parseFloat(hourlyForecastSeq[i]) || 0.0);
                         }
-                        return sum;
                     }
 
-                    // --- 5-DAY DECAY CALCULATIONS (k = 0.8) ---
-                    // Day 1: 0.8 * (7-AP) + CReSS Day 1 (+07h to +24h, skipping +01h..+06h spin-up buffer)
-                    var cressDay1 = sumRange(6, 24);
-                    var api1 = (0.8 * p7) + cressDay1;
-
-                    // Day 2: 0.8 * API(1) + CReSS Day 2 (+25h to +48h)
-                    var cressDay2 = sumRange(24, 48);
-                    var api2 = (0.8 * api1) + cressDay2;
-
-                    // Day 3: 0.8 * API(2) + CReSS Day 3 (+49h to +72h)
-                    var cressDay3 = sumRange(48, 72);
-                    var api3 = (0.8 * api2) + cressDay3;
-
-                    // Day 4: 0.8 * API(3) + CReSS Day 4 (+73h to +96h)
-                    var cressDay4 = sumRange(72, 96);
-                    var api4 = (0.8 * api3) + cressDay4;
-
-                    // Day 5: 0.8 * API(4) + CReSS Day 5 (+97h to +120h)
-                    var cressDay5 = sumRange(96, 120);
-                    var api5 = (0.8 * api4) + cressDay5;
-
-                    // Map active forecast step (+01h to +42h/150h) to current Day and Confidence Tier
-                    var activeHour = currentStepIdx + 1;
-                    var currentAPI = api1;
-                    var activeDay = 1;
-                    var confidenceTier = "High";
-
-                    if (activeHour <= 24) {
-                        currentAPI = api1; activeDay = 1; confidenceTier = "High";
-                    } else if (activeHour <= 48) {
-                        currentAPI = api2; activeDay = 2; confidenceTier = "High";
-                    } else if (activeHour <= 72) {
-                        currentAPI = api3; activeDay = 3; confidenceTier = "High";
-                    } else if (activeHour <= 96) {
-                        currentAPI = api4; activeDay = 4; confidenceTier = "Moderate";
-                    } else {
-                        currentAPI = api5; activeDay = 5; confidenceTier = "Moderate";
-                    }
+                    var activeHour = targetStep + 1;
+                    var activeDay = Math.ceil(activeHour / 24.0) || 1;
+                    var confidenceTier = (activeDay <= 3) ? "High" : "Moderate";
 
                     return {
-                        currentAPI: parseFloat(currentAPI.toFixed(1)),
+                        currentAPI: parseFloat(api.toFixed(1)),
                         activeDay: activeDay,
                         confidenceTier: confidenceTier,
-                        p7Rain: p7,
-                        dailyAPIs: [
-                            parseFloat(api1.toFixed(1)),
-                            parseFloat(api2.toFixed(1)),
-                            parseFloat(api3.toFixed(1)),
-                            parseFloat(api4.toFixed(1)),
-                            parseFloat(api5.toFixed(1))
-                        ]
+                        p7Rain: p7
                     };
                 }
-                
+                                
                 /* ==========================================================================
                    SPATIAL UTILITIES & AWS SYNC ENGINE
                    ========================================================================== */
@@ -4259,42 +4223,35 @@
                  * Uses cached buffer geometries and BBox pre-filtering to eliminate lag.
                  */
                 function getZonalMaxForecastForStation(stationObj, cressLayer) {
-                    if (!stationObj) return 0.0;
+                    if (!stationObj || stationObj.lat === null || stationObj.lng === null) return 0.0;
 
-                    // 1. Cache station buffer polygon and bounding box once (prevents recreating Turf buffers every frame)
-                    if (!stationObj.bufferPoly && stationObj.lng !== null && stationObj.lat !== null) {
+                    // Terrain-aware radius: 6 km in steep mountain terrain (CAR), 15 km in coastal/plains
+                    var radiusKm = (stationObj.regionId === 'benguet') ? 6.0 : 15.0;
+
+                    if (!stationObj.bufferPoly) {
                         var pt = turf.point([stationObj.lng, stationObj.lat]);
-                        stationObj.bufferPoly = turf.buffer(pt, 20, { units: 'kilometers' });
+                        stationObj.bufferPoly = turf.buffer(pt, radiusKm, { units: 'kilometers' });
                         stationObj.bbox = turf.bbox(stationObj.bufferPoly); // [minLng, minLat, maxLng, maxLat]
                     }
 
-                    if (!cressLayer || !stationObj.bufferPoly) {
-                        if (typeof USE_MOCK_DATA !== 'undefined' && USE_MOCK_DATA) {
-                            return (stationObj.regionId === 'benguet') ? 14.5 :
-                                   (stationObj.regionId === 'bicol') ? 18.0 :
-                                   (stationObj.regionId === 'calabarzon') ? 9.0 : 4.0;
-                        }
-                        return 0.0;
-                    }
+                    if (!cressLayer || !stationObj.bufferPoly) return 0.0;
 
                     try {
                         var sBbox = stationObj.bbox;
                         var zonalMaxRain = 0.0;
-                        var layerCount = 0;
 
                         cressLayer.eachLayer(function (gridLayer) {
-                            layerCount++;
                             if (gridLayer.feature) {
-                                // 2. Fast Bounding-Box Check (skips 95% of non-overlapping map features instantly)
+                                // Bounding-box pre-filter: skips non-overlapping cells in < 0.1ms
                                 var fBounds = gridLayer.getBounds ? gridLayer.getBounds() : null;
                                 if (fBounds) {
                                     if (fBounds.getSouth() > sBbox[3] || fBounds.getNorth() < sBbox[1] ||
                                         fBounds.getEast() < sBbox[0] || fBounds.getWest() > sBbox[2]) {
-                                        return; // Fast reject
+                                        return;
                                     }
                                 }
 
-                                // 3. Precise Turf intersection only for overlapping candidate grid cells
+                                // Intersection check on candidate cells only
                                 if (turf.booleanIntersects(stationObj.bufferPoly, gridLayer.feature)) {
                                     var cellRain = getFeatureCurrentValue(gridLayer.feature, "pra") || 0.0;
                                     if (cellRain > zonalMaxRain) {
@@ -4303,13 +4260,6 @@
                                 }
                             }
                         });
-
-                        // Fallback if layer is empty during async loading
-                        if (layerCount === 0 && typeof USE_MOCK_DATA !== 'undefined' && USE_MOCK_DATA) {
-                            return (stationObj.regionId === 'benguet') ? 14.5 :
-                                   (stationObj.regionId === 'bicol') ? 18.0 :
-                                   (stationObj.regionId === 'calabarzon') ? 9.0 : 4.0;
-                        }
 
                         return zonalMaxRain;
                     } catch (err) {
@@ -4331,47 +4281,39 @@
                 // 1. Updated Helper: Extracts rain at point with a spatial tolerance fallback
                 function getRainAtPointFromFrame(lat, lng, frameUrl) {
                     if (!frameUrl) return 0.0;
-                    
-                    // Check direct URL key or loose key match in geoJsonCache
+
                     var data = geoJsonCache[frameUrl];
                     if (!data) {
                         var cleanKey = Object.keys(geoJsonCache).find(k => k.endsWith(frameUrl) || frameUrl.endsWith(k));
                         if (cleanKey) data = geoJsonCache[cleanKey];
                     }
-                    
-                    if (!data || !data.features || data.features.length === 0) return 0.0;
 
-                    var maxValFound = 0.0;
+                    if (!data || !data.features || data.features.length === 0) return 0.0;
 
                     for (var i = data.features.length - 1; i >= 0; i--) {
                         var f = data.features[i];
                         if (!f.geometry || !f.geometry.coordinates) continue;
 
-                        var val = getFeatureCurrentValue(f, "pra");
-                        
-                        // Point-in-polygon check
-                        var rings = (f.geometry.type === 'Polygon') ? [f.geometry.coordinates[0]] :
-                            (f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates.map(c => c[0]) : []);
-                        
-                        for (var r = 0; r < rings.length; r++) {
-                            if (rings[r] && isPointInRing(lng, lat, rings[r])) {
-                                return val;
+                        // Bounding-box pre-filtering on feature
+                        var bbox = f.bbox;
+                        if (bbox && bbox.length === 4) {
+                            if (lng < bbox[0] || lng > bbox[2] || lat < bbox[1] || lat > bbox[3]) {
+                                continue; // Skip non-matching feature instantly
                             }
                         }
 
-                        // Spatial tolerance check (0.15 deg ~ 15km buffer) to catch gridded mesh edges
-                        if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
-                            var bbox = f.bbox || [];
-                            if (bbox.length === 4) {
-                                if (lng >= bbox[0] - 0.15 && lng <= bbox[2] + 0.15 &&
-                                    lat >= bbox[1] - 0.15 && lat <= bbox[3] + 0.15) {
-                                    if (val > maxValFound) maxValFound = val;
-                                }
+                        // Point-in-polygon verification
+                        var rings = (f.geometry.type === 'Polygon') ? [f.geometry.coordinates[0]] :
+                            (f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates.map(c => c[0]) : []);
+
+                        for (var r = 0; r < rings.length; r++) {
+                            if (rings[r] && isPointInRing(lng, lat, rings[r])) {
+                                return getFeatureCurrentValue(f, "pra");
                             }
                         }
                     }
-                    
-                    return maxValFound;
+
+                    return 0.0;
                 }
 
                 // 2. Updated Cache Generator: Does NOT cache incomplete/unloaded frame sequences
@@ -4440,24 +4382,9 @@
                     });
                 }
 
-                // 2. O(1) direct feature lookup
+                // Safely redirect station frame rain lookup to BBox point lookup
                 function getRainForStationFromFrame(st, frameUrl) {
-                    if (!frameUrl) return 0.0;
-
-                    var data = geoJsonCache[frameUrl];
-                    if (!data) {
-                        var cleanKey = Object.keys(geoJsonCache).find(k => k.endsWith(frameUrl) || frameUrl.endsWith(k));
-                        if (cleanKey) data = geoJsonCache[cleanKey];
-                    }
-
-                    if (!data || !data.features) return 0.0;
-
-                    // O(1) Direct Lookup
-                    if (st.gridFeatureIndex !== undefined && data.features[st.gridFeatureIndex]) {
-                        return getFeatureCurrentValue(data.features[st.gridFeatureIndex], "pra");
-                    }
-
-                    // Fallback search if station is not indexed yet
+                    if (!frameUrl || st.lat === null || st.lng === null) return 0.0;
                     return getRainAtPointFromFrame(st.lat, st.lng, frameUrl);
                 }
                 

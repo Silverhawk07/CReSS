@@ -5256,7 +5256,7 @@
                             <button onclick="openExpandedModal()" style="background:#0284c7; color:white; border:none; padding:5px 12px; border-radius:6px; font-weight:600; cursor:pointer; font-size:11px; flex-shrink:0; min-height:28px;">🔍 Full Meteogram</button>
                         </div>
                     </div>
-                `;
+                    `;
 
                     activePopup = L.popup({
                         maxWidth: popupMaxW,
@@ -5267,10 +5267,8 @@
                         autoPanPaddingTopLeft: L.point(15, 60),
                         autoPanPaddingBottomRight: L.point(15, 15),
                         offset: [0, -10]
-                    })
-                        .setContent(popupHtml);
+                    }).setContent(popupHtml);
 
-                    // AFTER (Recreates marker if missing & safely guards method calls):
                     if (!activePointMarker && activePoint) {
                         activePointMarker = L.circleMarker([activePoint.lat, activePoint.lng], {
                             radius: 6,
@@ -5285,7 +5283,7 @@
                     if (activePointMarker) {
                         activePointMarker.bindPopup(activePopup).openPopup();
 
-                        activePointMarker.off('popupclose'); // Prevent duplicate listeners
+                        activePointMarker.off('popupclose');
                         activePointMarker.on('popupclose', function () {
                             if (activePointMarker && mapObj) {
                                 mapObj.removeLayer(activePointMarker);
@@ -5294,14 +5292,34 @@
                         });
                     }
 
-                    // Render instant chart immediately
+                    // Render instant chart immediately and merge server response
                     setTimeout(function () {
                         var canvas = document.getElementById('popupMeteogramCanvas');
                         if (!canvas) return;
+
+                        // 1. Draw initial 6-day baseline chart
                         drawPopupChart(canvas, initialData, currentVar);
 
-                        // Fetch high-speed backend calculation and smoothly refine
+                        // 2. Fetch backend calculation and safely merge without truncating length
                         fetchMeteogramData(activePoint.lat, activePoint.lng, currentVar, accumMode, function (res) {
+                            if (!res) return;
+
+                            // FIX: If fetched data is shorter than initial 6-day timeline (e.g. only 10 hours),
+                            // overlay the 10 fetched points onto the 6-day initialData array instead of truncating it.
+                            if (res.series && initialData.series && res.series.length < initialData.series.length) {
+                                var mergedSeries = [...initialData.series];
+                                var mergedLabels = initialData.labels ? [...initialData.labels] : null;
+
+                                for (var i = 0; i < res.series.length; i++) {
+                                    mergedSeries[i] = res.series[i];
+                                    if (mergedLabels && res.labels && res.labels[i]) {
+                                        mergedLabels[i] = res.labels[i];
+                                    }
+                                }
+                                res.series = mergedSeries;
+                                if (mergedLabels) res.labels = mergedLabels;
+                            }
+
                             lastMeteogramRes = res;
                             drawPopupChart(canvas, res, currentVar);
 

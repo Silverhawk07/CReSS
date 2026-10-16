@@ -5192,7 +5192,7 @@
                     var currVal = getFeatureCurrentValue(feature, currentVar);
                     var badgeHtml = getStatusBadgeHtml(currVal, currentVar);
 
-                    // 1. Calculate instant baseline data immediately (0ms delay!)
+                    // 1. Calculate instant baseline data immediately
                     var initialData = generateClientFallbackData(activePoint.lat, activePoint.lng, currentVar, accumMode);
                     lastMeteogramRes = initialData;
 
@@ -5218,6 +5218,9 @@
                         </div>
                     `;
                     }
+
+                    // Initial days calculation for fallback data
+                    var initialDays = (initialData.series.length / 24).toFixed(1);
 
                     var popupHtml = `
                     <div style="font-family:'Segoe UI', system-ui, sans-serif; width:100%; box-sizing:border-box;">
@@ -5252,7 +5255,7 @@
                         </div>
 
                         <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; border-top:1px solid #334155; padding-top:6px; gap:8px;">
-                            <span style="color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Lead time (+1h to +42h)</span>
+                            <span id="popup-lead-time-text" style="color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Lead time (+1h to +${initialData.series.length}h | ${initialDays} Days)</span>
                             <button onclick="openExpandedModal()" style="background:#0284c7; color:white; border:none; padding:5px 12px; border-radius:6px; font-weight:600; cursor:pointer; font-size:11px; flex-shrink:0; min-height:28px;">🔍 Full Meteogram</button>
                         </div>
                     </div>
@@ -5292,36 +5295,33 @@
                         });
                     }
 
-                    // Render instant chart immediately and merge server response
+                    // Render chart dynamically according to exact available data length
                     setTimeout(function () {
                         var canvas = document.getElementById('popupMeteogramCanvas');
                         if (!canvas) return;
 
-                        // 1. Draw initial 6-day baseline chart
                         drawPopupChart(canvas, initialData, currentVar);
 
-                        // 2. Fetch backend calculation and safely merge without truncating length
                         fetchMeteogramData(activePoint.lat, activePoint.lng, currentVar, accumMode, function (res) {
-                            if (!res) return;
+                            if (!res || !res.series) return;
 
-                            // FIX: If fetched data is shorter than initial 6-day timeline (e.g. only 10 hours),
-                            // overlay the 10 fetched points onto the 6-day initialData array instead of truncating it.
-                            if (res.series && initialData.series && res.series.length < initialData.series.length) {
-                                var mergedSeries = [...initialData.series];
-                                var mergedLabels = initialData.labels ? [...initialData.labels] : null;
+                            // 1. Get exact available count (e.g., 150)
+                            var actualCount = res.series.length; 
 
-                                for (var i = 0; i < res.series.length; i++) {
-                                    mergedSeries[i] = res.series[i];
-                                    if (mergedLabels && res.labels && res.labels[i]) {
-                                        mergedLabels[i] = res.labels[i];
-                                    }
-                                }
-                                res.series = mergedSeries;
-                                if (mergedLabels) res.labels = mergedLabels;
+                            // 2. Trim labels array to strictly match the available data length
+                            if (res.labels && res.labels.length > actualCount) {
+                                res.labels = res.labels.slice(0, actualCount);
                             }
 
                             lastMeteogramRes = res;
                             drawPopupChart(canvas, res, currentVar);
+
+                            // 3. Dynamically update Lead Time text and Days calculation (available_data / 24)
+                            var calcDays = (actualCount / 24).toFixed(1);
+                            var leadTimeEl = document.getElementById('popup-lead-time-text');
+                            if (leadTimeEl) {
+                                leadTimeEl.innerText = `Lead time (+1h to +${actualCount}h | ${calcDays} Days)`;
+                            }
 
                             var peakEl = document.getElementById('popup-peak-display');
                             if (peakEl && res.peak) {

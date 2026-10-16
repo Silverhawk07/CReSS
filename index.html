@@ -4222,49 +4222,82 @@
                  * High-Performance Zonal Max Forecast Extraction
                  * Uses cached buffer geometries and BBox pre-filtering to eliminate lag.
                  */
-                function getZonalMaxForecastForStation(stationObj, cressLayer) {
-                    if (!stationObj || stationObj.lat === null || stationObj.lng === null) return 0.0;
+                /* =========================================================================
+                   60 FPS HIGH-PERFORMANCE ZONAL SAMPLING ENGINE
+                   ========================================================================= */
 
-                    // Terrain-aware radius: 6 km in steep mountain terrain (CAR), 15 km in coastal/plains
-                    var radiusKm = (stationObj.regionId === 'benguet') ? 6.0 : 15.0;
+                /**
+                 * Pre-computes zonal max rain for all AWS stations once when a GeoJSON frame is fetched.
+                 * Eliminates live Turf.js polygon checks during timeline playback!
+                 */
+                function preindexFrameZonalMax(frameUrl, geoJsonData) {
+                    if (!geoJsonData || !geoJsonData.features || !window.awsStationsList || window.awsStationsList.length === 0) return;
 
-                    if (!stationObj.bufferPoly) {
-                        var pt = turf.point([stationObj.lng, stationObj.lat]);
-                        stationObj.bufferPoly = turf.buffer(pt, radiusKm, { units: 'kilometers' });
-                        stationObj.bbox = turf.bbox(stationObj.bufferPoly); // [minLng, minLat, maxLng, maxLat]
-                    }
+                    geoJsonData._stationMaxRainMap = {};
+                    var features = geoJsonData.features;
 
-                    if (!cressLayer || !stationObj.bufferPoly) return 0.0;
+                    // 1. Pre-calculate bounding boxes once per feature
+                    features.forEach(function (f) {
+                        if (!f.bbox && f.geometry) {
+                            f.bbox = turf.bbox(f);
+                        }
+                    });
 
-                    try {
-                        var sBbox = stationObj.bbox;
-                        var zonalMaxRain = 0.0;
+                    // 2. Compute zonal max rain per station ONCE for this frame
+                    window.awsStationsList.forEach(function (st) {
+                        if (st.lat === null || st.lng === null) return;
 
-                        cressLayer.eachLayer(function (gridLayer) {
-                            if (gridLayer.feature) {
-                                // Bounding-box pre-filter: skips non-overlapping cells in < 0.1ms
-                                var fBounds = gridLayer.getBounds ? gridLayer.getBounds() : null;
-                                if (fBounds) {
-                                    if (fBounds.getSouth() > sBbox[3] || fBounds.getNorth() < sBbox[1] ||
-                                        fBounds.getEast() < sBbox[0] || fBounds.getWest() > sBbox[2]) {
-                                        return;
-                                    }
-                                }
+                        if (!st.bufferPoly) {
+                            var radiusKm = (st.regionId === 'benguet') ? 6.0 : 15.0;
+                            var pt = turf.point([st.lng, st.lat]);
+                            st.bufferPoly = turf.buffer(pt, radiusKm, { units: 'kilometers' });
+                            st.bbox = turf.bbox(st.bufferPoly);
+                        }
 
-                                // Intersection check on candidate cells only
-                                if (turf.booleanIntersects(stationObj.bufferPoly, gridLayer.feature)) {
-                                    var cellRain = getFeatureCurrentValue(gridLayer.feature, "pra") || 0.0;
-                                    if (cellRain > zonalMaxRain) {
-                                        zonalMaxRain = cellRain;
-                                    }
-                                }
+                        var sBbox = st.bbox;
+                        var maxRain = 0.0;
+
+                        for (var i = 0; i < features.length; i++) {
+                            var f = features[i];
+                            if (!f.geometry || !f.bbox) continue;
+
+                            var fBbox = f.bbox;
+                            // Fast BBox pre-filter
+                            if (fBbox[0] > sBbox[2] || fBbox[2] < sBbox[0] ||
+                                fBbox[1] > sBbox[3] || fBbox[3] < sBbox[1]) {
+                                continue;
                             }
-                        });
 
-                        return zonalMaxRain;
-                    } catch (err) {
-                        return 0.0;
+                            // Precise Turf intersection test
+                            if (turf.booleanIntersects(st.bufferPoly, f)) {
+                                var val = getFeatureCurrentValue(f, "pra");
+                                if (val > maxRain) maxRain = val;
+                            }
+                        }
+
+                        geoJsonData._stationMaxRainMap[st.id] = maxRain;
+                    });
+                }
+
+                /**
+                 * Instant O(1) lookup during live animation playback.
+                 */
+                function getZonalMaxForecastForStation(stationObj, cressLayer) {
+                    if (!stationObj || !activeFrames) return 0.0;
+
+                    var sliderEl = document.getElementById("time-slider");
+                    var activeIdx = sliderEl ? (parseInt(sliderEl.value) || 0) : 0;
+                    var frame = activeFrames[activeIdx];
+                    if (!frame || !frame.url) return 0.0;
+
+                    var cachedData = geoJsonCache[frame.url];
+
+                    // Returns pre-indexed cache instantly in 0ms!
+                    if (cachedData && cachedData._stationMaxRainMap && cachedData._stationMaxRainMap[stationObj.id] !== undefined) {
+                        return cachedData._stationMaxRainMap[stationObj.id];
                     }
+
+                    return 0.0;
                 }
 
                 /**
@@ -4729,6 +4762,7 @@
                                 return response.json();
                             })
                             .then(data => {
+                                preindexFrameZonalMax(url, data);
                                 geoJsonCache[url] = data;
                                 buildStationGridIndices(data);
                                 invalidateStationCaches();

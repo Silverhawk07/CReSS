@@ -5193,7 +5193,8 @@
                     var badgeHtml = getStatusBadgeHtml(currVal, currentVar);
 
                     // 1. Calculate instant baseline data immediately
-                    var initialData = generateClientFallbackData(activePoint.lat, activePoint.lng, currentVar, accumMode);
+                    var initialData = generateClientFallbackData(activePoint.lat, activePoint.lng, currentVar, accumMode) || {};
+                    var initialSeries = (initialData && Array.isArray(initialData.series)) ? initialData.series : [];
                     lastMeteogramRes = initialData;
 
                     var initialPeakText = initialData.peak ? `Peak: ${initialData.peak.value} ${param.unit} (+${String(initialData.peak.step).padStart(2, '0')}h)` : `Current: ${currVal} ${param.unit}`;
@@ -5219,7 +5220,8 @@
                     `;
                     }
 
-                    var initialDays = (initialData.series.length / 24).toFixed(1);
+                    // Safe days calculation with length check
+                    var initialDays = initialSeries.length > 0 ? (initialSeries.length / 24).toFixed(1) : "0.0";
 
                     var popupHtml = `
                     <div style="font-family:'Segoe UI', system-ui, sans-serif; width:100%; box-sizing:border-box;">
@@ -5254,26 +5256,24 @@
                         </div>
 
                         <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; border-top:1px solid #334155; padding-top:6px; gap:8px;">
-                            <span id="popup-lead-time-text" style="color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Lead time (+1h to +${initialData.series.length}h | ${initialDays} Days)</span>
+                            <span id="popup-lead-time-text" style="color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Lead time (+1h to +${initialSeries.length}h | ${initialDays} Days)</span>
                             <button onclick="openExpandedModal()" style="background:#0284c7; color:white; border:none; padding:5px 12px; border-radius:6px; font-weight:600; cursor:pointer; font-size:11px; flex-shrink:0; min-height:28px;">🔍 Full Meteogram</button>
                         </div>
                     </div>
                     `;
 
-                    // 📍 FIX 1: Set closeOnClick: false so map clicks don't vanish the popup
                     activePopup = L.popup({
                         maxWidth: popupMaxW,
                         minWidth: popupMinW,
                         className: 'cress-meteogram-popup',
                         closeButton: true,
-                        closeOnClick: false, // Prevents instant closing on map click
+                        closeOnClick: false,
                         autoPan: true,
                         autoPanPaddingTopLeft: L.point(15, 60),
                         autoPanPaddingBottomRight: L.point(15, 15),
                         offset: [0, -10]
                     }).setContent(popupHtml);
 
-                    // Remove old marker if exists before creating new one
                     if (activePointMarker) {
                         mapObj.removeLayer(activePointMarker);
                         activePointMarker = null;
@@ -5291,7 +5291,6 @@
 
                         activePointMarker.bindPopup(activePopup).openPopup();
 
-                        // 📍 FIX 2: Safely handle popup closure without destroying active marker prematurely
                         activePointMarker.on('popupclose', function (e) {
                             var currentMarker = e.target;
                             setTimeout(function() {
@@ -5305,25 +5304,27 @@
                         });
                     }
 
-                    // Render chart inside the popup canvas
+                    // Render chart inside canvas with safe checks
                     setTimeout(function () {
                         var canvas = document.getElementById('popupMeteogramCanvas');
                         if (!canvas) return;
 
-                        drawPopupChart(canvas, initialData, currentVar);
+                        if (initialSeries.length > 0) {
+                            drawPopupChart(canvas, initialData, currentVar);
+                        }
 
                         fetchMeteogramData(activePoint.lat, activePoint.lng, currentVar, accumMode, function (res) {
-                            if (!res || !res.series) return;
+                            // Guard against undefined response or missing series
+                            if (!res || !res.series || !Array.isArray(res.series)) return;
 
                             var actualCount = res.series.length; 
 
-                            if (res.labels && res.labels.length > actualCount) {
+                            if (res.labels && Array.isArray(res.labels) && res.labels.length > actualCount) {
                                 res.labels = res.labels.slice(0, actualCount);
                             }
 
                             lastMeteogramRes = res;
                             
-                            // Re-check canvas presence in case user closed popup during fetch
                             var currentCanvas = document.getElementById('popupMeteogramCanvas');
                             if (currentCanvas) {
                                 drawPopupChart(currentCanvas, res, currentVar);
@@ -5349,6 +5350,10 @@
                 }
 
                 function drawPopupChart(canvas, res, varKey) {
+                    // 📍 Add this guard at the very beginning of drawPopupChart
+                    if (!canvas || !data || !data.series || !Array.isArray(data.series)) {
+                        return;
+                    }
                     var ctx = canvas.getContext('2d');
                     if (popupChartInstance) {
                         popupChartInstance.destroy();

@@ -5219,7 +5219,6 @@
                     `;
                     }
 
-                    // Initial days calculation for fallback data
                     var initialDays = (initialData.series.length / 24).toFixed(1);
 
                     var popupHtml = `
@@ -5261,18 +5260,26 @@
                     </div>
                     `;
 
+                    // 📍 FIX 1: Set closeOnClick: false so map clicks don't vanish the popup
                     activePopup = L.popup({
                         maxWidth: popupMaxW,
                         minWidth: popupMinW,
                         className: 'cress-meteogram-popup',
                         closeButton: true,
+                        closeOnClick: false, // Prevents instant closing on map click
                         autoPan: true,
                         autoPanPaddingTopLeft: L.point(15, 60),
                         autoPanPaddingBottomRight: L.point(15, 15),
                         offset: [0, -10]
                     }).setContent(popupHtml);
 
-                    if (!activePointMarker && activePoint) {
+                    // Remove old marker if exists before creating new one
+                    if (activePointMarker) {
+                        mapObj.removeLayer(activePointMarker);
+                        activePointMarker = null;
+                    }
+
+                    if (activePoint) {
                         activePointMarker = L.circleMarker([activePoint.lat, activePoint.lng], {
                             radius: 6,
                             fillColor: '#38bdf8',
@@ -5281,21 +5288,24 @@
                             opacity: 1,
                             fillOpacity: 0.9
                         }).addTo(mapObj);
-                    }
 
-                    if (activePointMarker) {
                         activePointMarker.bindPopup(activePopup).openPopup();
 
-                        activePointMarker.off('popupclose');
-                        activePointMarker.on('popupclose', function () {
-                            if (activePointMarker && mapObj) {
-                                mapObj.removeLayer(activePointMarker);
-                                activePointMarker = null;
-                            }
+                        // 📍 FIX 2: Safely handle popup closure without destroying active marker prematurely
+                        activePointMarker.on('popupclose', function (e) {
+                            var currentMarker = e.target;
+                            setTimeout(function() {
+                                if (currentMarker && mapObj && !currentMarker.isPopupOpen()) {
+                                    mapObj.removeLayer(currentMarker);
+                                    if (activePointMarker === currentMarker) {
+                                        activePointMarker = null;
+                                    }
+                                }
+                            }, 50);
                         });
                     }
 
-                    // Render chart dynamically according to exact available data length
+                    // Render chart inside the popup canvas
                     setTimeout(function () {
                         var canvas = document.getElementById('popupMeteogramCanvas');
                         if (!canvas) return;
@@ -5305,18 +5315,20 @@
                         fetchMeteogramData(activePoint.lat, activePoint.lng, currentVar, accumMode, function (res) {
                             if (!res || !res.series) return;
 
-                            // 1. Get exact available count (e.g., 150)
                             var actualCount = res.series.length; 
 
-                            // 2. Trim labels array to strictly match the available data length
                             if (res.labels && res.labels.length > actualCount) {
                                 res.labels = res.labels.slice(0, actualCount);
                             }
 
                             lastMeteogramRes = res;
-                            drawPopupChart(canvas, res, currentVar);
+                            
+                            // Re-check canvas presence in case user closed popup during fetch
+                            var currentCanvas = document.getElementById('popupMeteogramCanvas');
+                            if (currentCanvas) {
+                                drawPopupChart(currentCanvas, res, currentVar);
+                            }
 
-                            // 3. Dynamically update Lead Time text and Days calculation (available_data / 24)
                             var calcDays = (actualCount / 24).toFixed(1);
                             var leadTimeEl = document.getElementById('popup-lead-time-text');
                             if (leadTimeEl) {
@@ -5333,7 +5345,7 @@
                                 renderModalMeteogram(activePoint.lat, activePoint.lng, modalCurrentVar, res);
                             }
                         });
-                    }, 20);
+                    }, 50);
                 }
 
                 function drawPopupChart(canvas, res, varKey) {

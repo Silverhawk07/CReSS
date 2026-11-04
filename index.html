@@ -786,6 +786,43 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        @keyframes progressShimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+        #layer-download-hud {
+            display: none;
+            position: fixed;
+            top: 18px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-10px);
+            z-index: 999998;
+            width: min(92vw, 440px);
+            background: rgba(15, 23, 42, 0.94);
+            border: 1px solid rgba(56, 189, 248, 0.5);
+            border-radius: 12px;
+            padding: 11px 16px;
+            box-shadow: 0 12px 35px -5px rgba(0, 0, 0, 0.7), 0 0 20px rgba(2, 132, 199, 0.35);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            pointer-events: auto;
+        }
+        #top-download-progress-line {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 0%;
+            height: 3.5px;
+            background: linear-gradient(90deg, #38bdf8, #818cf8, #f43f5e);
+            z-index: 999999;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.85);
+            opacity: 0;
+            pointer-events: none;
+            transition: width 0.2s ease-out, opacity 0.3s ease;
+        }
     </style>
 
 </head>
@@ -815,6 +852,29 @@
             return loadScriptAsync('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
         }
     </script>
+
+    <!-- Top Slim Viewport Progress Line -->
+    <div id="top-download-progress-line"></div>
+
+    <!-- Floating Layer Download Progress HUD -->
+    <div id="layer-download-hud">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+            <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+                <span id="layer-download-icon" class="sync-spinner" style="display:inline-block; width:14px; height:14px; border:2.5px solid #38bdf8; border-top-color:transparent; border-radius:50%; animation:spin 0.75s linear infinite; flex-shrink:0;"></span>
+                <b id="layer-download-main-text" style="color:#38bdf8; font-size:12.5px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Layer still downloading, please wait until finish...</b>
+            </div>
+            <span id="layer-download-pct" style="color:#facc15; font-size:12.5px; font-weight:700; flex-shrink:0; font-family:monospace;">0%</span>
+        </div>
+        <div style="width:100%; height:6px; background:rgba(51, 65, 85, 0.65); border-radius:4px; overflow:hidden; margin:8px 0 6px 0; position:relative;">
+            <div id="layer-download-bar" style="height:100%; width:0%; background:linear-gradient(90deg, #0284c7, #38bdf8, #818cf8); border-radius:4px; transition:width 0.2s cubic-bezier(0.4, 0, 0.2, 1); position:relative;">
+                <div style="position:absolute; top:0; left:0; right:0; bottom:0; background:linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent); animation:progressShimmer 1.5s infinite;"></div>
+            </div>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:#94a3b8; gap:8px;">
+            <span id="layer-download-detail" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1;">Downloading layer data...</span>
+            <span id="layer-download-size" style="flex-shrink:0; font-family:monospace; color:#cbd5e1; font-size:10.5px;">-- / --</span>
+        </div>
+    </div>
 
     <div id="summary-card" class="cress-summary-card" onclick="toggleSummaryCard()">
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
@@ -4866,6 +4926,226 @@
                 var currentGeoJsonLayer = null;
 
                 // =========================================================================
+                // Layer Download Progress Bar Controller
+                // Informs the user when layers are downloading with a real-time progress bar.
+                // =========================================================================
+                var LayerDownloadManager = (function () {
+                    var hud = null;
+                    var topLine = null;
+                    var mainText = null;
+                    var detailText = null;
+                    var pctText = null;
+                    var sizeText = null;
+                    var bar = null;
+                    var icon = null;
+                    var hideTimeout = null;
+                    var activeDownloads = 0;
+                    var currentProgress = 0;
+
+                    function initElements() {
+                        if (!hud) hud = document.getElementById('layer-download-hud');
+                        if (!topLine) topLine = document.getElementById('top-download-progress-line');
+                        if (!mainText) mainText = document.getElementById('layer-download-main-text');
+                        if (!detailText) detailText = document.getElementById('layer-download-detail');
+                        if (!pctText) pctText = document.getElementById('layer-download-pct');
+                        if (!sizeText) sizeText = document.getElementById('layer-download-size');
+                        if (!bar) bar = document.getElementById('layer-download-bar');
+                        if (!icon) icon = document.getElementById('layer-download-icon');
+                    }
+
+                    function formatBytes(bytes) {
+                        if (!bytes || bytes <= 0) return '0 KB';
+                        if (bytes >= 1048576) {
+                            return (bytes / 1048576).toFixed(1) + ' MB';
+                        }
+                        return (bytes / 1024).toFixed(0) + ' KB';
+                    }
+
+                    function start(opts) {
+                        initElements();
+                        if (hideTimeout) {
+                            clearTimeout(hideTimeout);
+                            hideTimeout = null;
+                        }
+                        activeDownloads++;
+                        var title = (opts && opts.title) || "Layer still downloading, please wait until finish...";
+                        var detail = (opts && opts.detail) || "Downloading GeoJSON layer data...";
+                        var initialPct = (opts && opts.initialPct !== undefined) ? opts.initialPct : 5;
+
+                        currentProgress = initialPct;
+
+                        if (hud) {
+                            hud.style.display = 'block';
+                            hud.offsetHeight; // reflow
+                            hud.style.opacity = '1';
+                            hud.style.transform = 'translateX(-50%) translateY(0)';
+                        }
+                        if (topLine) {
+                            topLine.style.opacity = '1';
+                            topLine.style.width = initialPct + '%';
+                        }
+                        if (mainText) {
+                            mainText.innerText = title;
+                            mainText.style.color = '#38bdf8';
+                        }
+                        if (detailText) {
+                            detailText.innerText = detail;
+                        }
+                        if (pctText) {
+                            pctText.innerText = initialPct + '%';
+                            pctText.style.color = '#facc15';
+                        }
+                        if (sizeText) {
+                            sizeText.innerText = (opts && opts.sizeText) ? opts.sizeText : '-- / --';
+                        }
+                        if (bar) {
+                            bar.style.width = initialPct + '%';
+                            bar.style.background = 'linear-gradient(90deg, #0284c7, #38bdf8, #818cf8)';
+                        }
+                        if (icon) {
+                            icon.className = 'sync-spinner';
+                            icon.style.borderColor = '#38bdf8';
+                            icon.style.borderTopColor = 'transparent';
+                        }
+                    }
+
+                    function update(pct, detail, size) {
+                        initElements();
+                        currentProgress = Math.max(currentProgress, Math.min(99, pct || 0));
+
+                        if (topLine) topLine.style.width = currentProgress + '%';
+                        if (bar) bar.style.width = currentProgress + '%';
+                        if (pctText) pctText.innerText = Math.round(currentProgress) + '%';
+                        if (detailText && detail) detailText.innerText = detail;
+                        if (sizeText && size) sizeText.innerText = size;
+                    }
+
+                    function finish(msg) {
+                        initElements();
+                        activeDownloads = Math.max(0, activeDownloads - 1);
+                        if (activeDownloads > 0) return;
+
+                        currentProgress = 100;
+                        if (topLine) topLine.style.width = '100%';
+                        if (bar) {
+                            bar.style.width = '100%';
+                            bar.style.background = 'linear-gradient(90deg, #16a34a, #22c55e, #4ade80)';
+                        }
+                        if (pctText) {
+                            pctText.innerText = '100%';
+                            pctText.style.color = '#4ade80';
+                        }
+                        if (mainText) {
+                            mainText.innerText = msg || "✓ Layer download finished!";
+                            mainText.style.color = '#4ade80';
+                        }
+                        if (detailText) {
+                            detailText.innerText = "Layer ready and displayed on map";
+                        }
+                        if (icon) {
+                            icon.className = '';
+                            icon.innerHTML = '✓';
+                            icon.style.color = '#4ade80';
+                            icon.style.fontWeight = 'bold';
+                            icon.style.fontSize = '13px';
+                        }
+
+                        if (hideTimeout) clearTimeout(hideTimeout);
+                        hideTimeout = setTimeout(function () {
+                            if (hud) {
+                                hud.style.opacity = '0';
+                                hud.style.transform = 'translateX(-50%) translateY(-10px)';
+                                setTimeout(function () {
+                                    if (activeDownloads === 0) {
+                                        hud.style.display = 'none';
+                                        if (icon) icon.innerHTML = '';
+                                    }
+                                }, 350);
+                            }
+                            if (topLine) {
+                                topLine.style.opacity = '0';
+                                setTimeout(function () {
+                                    if (activeDownloads === 0) topLine.style.width = '0%';
+                                }, 350);
+                            }
+                            hideTimeout = null;
+                        }, 800);
+                    }
+
+                    function fail(errMsg) {
+                        initElements();
+                        activeDownloads = Math.max(0, activeDownloads - 1);
+                        if (mainText) {
+                            mainText.innerText = "⚠️ Layer download interrupted";
+                            mainText.style.color = '#f87171';
+                        }
+                        if (detailText) {
+                            detailText.innerText = errMsg || "Please check connection or retry step";
+                        }
+                        if (pctText) {
+                            pctText.innerText = "!";
+                            pctText.style.color = '#f87171';
+                        }
+                        if (bar) {
+                            bar.style.background = '#ef4444';
+                        }
+                        if (hideTimeout) clearTimeout(hideTimeout);
+                        hideTimeout = setTimeout(function () {
+                            if (hud) {
+                                hud.style.opacity = '0';
+                                hud.style.transform = 'translateX(-50%) translateY(-10px)';
+                                setTimeout(function () {
+                                    if (activeDownloads === 0) hud.style.display = 'none';
+                                }, 350);
+                            }
+                            if (topLine) topLine.style.opacity = '0';
+                        }, 3000);
+                    }
+
+                    return {
+                        start: start,
+                        update: update,
+                        finish: finish,
+                        fail: fail,
+                        formatBytes: formatBytes
+                    };
+                })();
+                window.LayerDownloadManager = LayerDownloadManager;
+
+                function getLayerFriendlyName(url) {
+                    if (!url) return "Layer";
+                    var parts = url.split('/');
+                    var fn = parts[parts.length - 1];
+                    if (fn.indexOf('regional_landslide_thresholds') !== -1) {
+                        return "Regional Landslide Threshold Boundaries";
+                    }
+                    if (fn.indexOf('24h') !== -1) {
+                        var dMatch = fn.match(/day0?(\d+)/i);
+                        return "24-Hour Rainfall Layer (Day " + (dMatch ? dMatch[1] : "1") + ")";
+                    }
+                    if (fn.indexOf('pra_f') !== -1) {
+                        var hMatch = fn.match(/f0*(\d+)/i);
+                        var hNum = hMatch ? parseInt(hMatch[1], 10) : 1;
+                        return "Hourly Rainfall Layer (+" + String(hNum).padStart(2, '0') + "h)";
+                    }
+                    if (fn.indexOf('vort') !== -1) {
+                        var vMatch = fn.match(/f0*(\d+)/i);
+                        var vNum = vMatch ? parseInt(vMatch[1], 10) : 1;
+                        return "Wind Vorticity Layer (+" + String(vNum).padStart(2, '0') + "h)";
+                    }
+                    if (fn.indexOf('ps') !== -1) {
+                        var pMatch = fn.match(/f0*(\d+)/i);
+                        var pNum = pMatch ? parseInt(pMatch[1], 10) : 1;
+                        return "Surface Pressure Layer (+" + String(pNum).padStart(2, '0') + "h)";
+                    }
+                    if (fn.toLowerCase().indexOf('aws') !== -1 || fn.toLowerCase().indexOf('ligtas') !== -1) {
+                        var clean = fn.replace('.geojson', '').replace('LIGTAS_', '').replace(/%20|_/g, ' ');
+                        return "AWS Site: " + clean;
+                    }
+                    return fn;
+                }
+
+                // =========================================================================
                 // High-Speed GeoJSON Pre-Downloader, In-Memory Cache & Buffer Manager
                 // =========================================================================
                 var geoJsonCache = Object.assign({}, window._cressPreloadedData || {});
@@ -4900,7 +5180,7 @@
                     }
                 }
 
-                function loadGeoJson(url) {
+                function loadGeoJson(url, isSilent) {
                     if (!url) return Promise.reject(new Error("No URL provided"));
 
                     // 1. Instant Cache hit (0ms)
@@ -4910,38 +5190,121 @@
 
                     // 2. Early Preload promise from <head>
                     if (window._cressPreloadPromises && window._cressPreloadPromises[url]) {
+                        var friendlyName = getLayerFriendlyName(url);
+                        if (!isSilent) {
+                            LayerDownloadManager.start({
+                                title: "Layer still downloading, please wait until finish...",
+                                detail: "Completing early download: " + friendlyName,
+                                initialPct: 50
+                            });
+                        }
                         return window._cressPreloadPromises[url].then(function (data) {
                             if (data) {
                                 geoJsonCache[url] = data;
                                 updateBufferUI();
+                                if (!isSilent) {
+                                    LayerDownloadManager.finish("✓ " + friendlyName + " ready!");
+                                }
                                 return data;
                             }
-                            return fetchDirect(url);
+                            return fetchDirect(url, isSilent);
                         });
                     }
 
                     // 3. Check in-flight requests (prevent duplicate network fetches)
                     if (inFlightRequests[url]) {
+                        if (!isSilent) {
+                            LayerDownloadManager.start({
+                                title: "Layer still downloading, please wait until finish...",
+                                detail: "Waiting for in-flight download: " + getLayerFriendlyName(url),
+                                initialPct: 40
+                            });
+                        }
                         return inFlightRequests[url];
                     }
 
-                    return fetchDirect(url);
+                    return fetchDirect(url, isSilent);
                 }
 
-                function fetchDirect(url) {
+                function fetchDirect(url, isSilent) {
+                    var friendlyName = getLayerFriendlyName(url);
+                    if (!isSilent) {
+                        LayerDownloadManager.start({
+                            title: "Layer still downloading, please wait until finish...",
+                            detail: "Fetching " + friendlyName,
+                            initialPct: 10
+                        });
+                    }
+
                     inFlightRequests[url] = fetch(url)
                         .then(function (res) {
                             if (!res.ok) throw new Error("HTTP " + res.status + " for " + url);
+
+                            var contentLength = res.headers.get('content-length');
+                            var totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
+
+                            // If ReadableStream is available, stream-read chunks for live progress bar
+                            if (res.body && typeof res.body.getReader === 'function') {
+                                var reader = res.body.getReader();
+                                var receivedBytes = 0;
+                                var chunks = [];
+
+                                function readChunk() {
+                                    return reader.read().then(function (chunk) {
+                                        if (chunk.done) {
+                                            if (!isSilent) {
+                                                LayerDownloadManager.update(100, "Decoding " + friendlyName, LayerDownloadManager.formatBytes(receivedBytes));
+                                            }
+                                            var totalLen = 0;
+                                            for (var i = 0; i < chunks.length; i++) totalLen += chunks[i].length;
+                                            var allBytes = new Uint8Array(totalLen);
+                                            var offset = 0;
+                                            for (var j = 0; j < chunks.length; j++) {
+                                                allBytes.set(chunks[j], offset);
+                                                offset += chunks[j].length;
+                                            }
+                                            var text = new TextDecoder('utf-8').decode(allBytes);
+                                            return JSON.parse(text);
+                                        }
+
+                                        chunks.push(chunk.value);
+                                        receivedBytes += chunk.value.length;
+
+                                        if (!isSilent) {
+                                            var pct = 10;
+                                            var sizeStr = LayerDownloadManager.formatBytes(receivedBytes);
+                                            if (totalBytes > 0) {
+                                                pct = Math.min(98, Math.round((receivedBytes / totalBytes) * 100));
+                                                sizeStr = LayerDownloadManager.formatBytes(receivedBytes) + " / " + LayerDownloadManager.formatBytes(totalBytes);
+                                            } else {
+                                                pct = Math.min(95, Math.round(15 + Math.log10(receivedBytes + 1) * 14));
+                                            }
+                                            LayerDownloadManager.update(pct, "Downloading " + friendlyName, sizeStr);
+                                        }
+
+                                        return readChunk();
+                                    });
+                                }
+
+                                return readChunk();
+                            }
+
                             return res.json();
                         })
                         .then(function (data) {
                             geoJsonCache[url] = data;
                             delete inFlightRequests[url];
                             updateBufferUI();
+                            if (!isSilent) {
+                                LayerDownloadManager.finish("✓ " + friendlyName + " ready!");
+                            }
                             return data;
                         })
                         .catch(function (err) {
                             delete inFlightRequests[url];
+                            if (!isSilent) {
+                                LayerDownloadManager.fail("⚠️ Could not load " + friendlyName);
+                            }
                             throw err;
                         });
 
@@ -5000,7 +5363,7 @@
                     }
 
                     activePreloadCount++;
-                    loadGeoJson(url)
+                    loadGeoJson(url, true)
                         .catch(function () {
                             // Non-fatal background preload catch
                         })
@@ -5046,12 +5409,18 @@
                     }
 
                     if (targets.length > 0) {
+                        LayerDownloadManager.start({
+                            title: "Layer still downloading, please wait until finish...",
+                            detail: `Buffering ${targets.length} forecast layers ahead...`,
+                            initialPct: 15
+                        });
                         preloadQueue.unshift(...targets);
                         processPreloadQueue();
                     } else {
                         isPreloadActive = false;
                         if (btnText) btnText.innerText = "Buffer: 100%";
                         if (btnDot) btnDot.style.background = "#22c55e";
+                        LayerDownloadManager.finish("✓ All forecast layers already buffered in memory!");
                     }
                     setTimeout(function () {
                         isPreloadActive = false;
@@ -5563,6 +5932,11 @@
                     var p7Str = (st.past7DaysRain !== undefined) ? st.past7DaysRain.toFixed(1) : '0.0';
                     var confStr = st.confidence || 'High';
                     var dayStr = st.activeDay || 1;
+                    var sp = st.properties || {};
+                    var brgy = st.brgy || sp['Barangay'] || '--';
+                    var muni = st.muni || sp['Municipali'] || sp['Municipality'] || '--';
+                    var prov = st.prov || sp['Province'] || '--';
+                    var lsLevel = st.lsLevel || sp['Landslide '] || sp['LS'] || 'High Landslide Susceptibility';
 
                     return `
                         <div style="font-family:'Segoe UI',system-ui,sans-serif; font-size:12px; color:#f8fafc; min-width:260px;">
@@ -5588,6 +5962,20 @@
                                 <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; border-top:1px dashed #334155; padding-top:4px; margin-top:4px;">
                                     <span style="color:#94a3b8;">Confidence: <b style="color:#38bdf8;">${confStr} (Day ${dayStr})</b></span>
                                     <span style="color:#94a3b8;">7-AP Rain: <b style="color:#4ade80;">${p7Str} mm</b></span>
+                                </div>
+                            </div>
+
+                            <!-- GeoJSON AWS Location & Hazard Attributes -->
+                            <div style="background:rgba(15,23,42,0.85); border:1px solid #334155; border-radius:7px; padding:6px 9px; margin-bottom:8px; font-size:10.5px; line-height:1.45;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(51,65,85,0.7); padding-bottom:3px; margin-bottom:5px;">
+                                    <span style="font-weight:700; color:#38bdf8;">📍 Site Location & Susceptibility</span>
+                                    <span style="color:#f87171; font-weight:700; font-size:9.5px;">${lsLevel}</span>
+                                </div>
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:3px 8px; font-size:10px;">
+                                    <div><span style="color:#94a3b8;">Barangay:</span> <b style="color:#f8fafc;">${brgy}</b></div>
+                                    <div><span style="color:#94a3b8;">Municipality:</span> <b style="color:#f8fafc;">${muni}</b></div>
+                                    <div><span style="color:#94a3b8;">Province:</span> <b style="color:#f8fafc;">${prov}</b></div>
+                                    <div><span style="color:#94a3b8;">Susceptibility:</span> <b style="color:#f87171;">${lsLevel}</b></div>
                                 </div>
                             </div>
 
@@ -5711,6 +6099,9 @@
                                     safeName: safeName,
                                     displayName: displayName,
                                     prov: '',
+                                    muni: '',
+                                    brgy: '',
+                                    lsLevel: 'High Landslide Susceptibility',
                                     regionId: finalRegionId,
                                     regionName: regionName,
                                     lat: stationLat,
@@ -5720,6 +6111,8 @@
                                     dateInst: '',
                                     marker: null,
                                     hazardLayer: null,
+                                    hazardFeatures: geoData.features || [],
+                                    properties: stationProps || {},
                                     currentRain: 0.0,
                                     alertWarn: getWarningForValue(finalRegionId, 0.0)
                                 };
@@ -5848,10 +6241,17 @@
                                     var status = stationProps['Status'] || 'Operational';
                                     var dateInst = stationProps['Date Insta'] || '';
 
+                                    var lsLevel = stationProps['Landslide '] || stationProps['Landslide'] || stationProps['LS'] || 'High Landslide Susceptibility';
+
                                     stationObj.prov = prov;
+                                    stationObj.muni = muni;
+                                    stationObj.brgy = brgy;
                                     stationObj.locDesc = locDesc;
+                                    stationObj.lsLevel = lsLevel;
                                     stationObj.status = status;
                                     stationObj.dateInst = dateInst;
+                                    stationObj.properties = stationProps;
+                                    stationObj.hazardFeatures = geoData.features || [];
 
                                     stationMarker = L.circleMarker([stationLat, stationLng], {
                                         radius: 6.0,
@@ -6482,17 +6882,27 @@
                 function lazyLoadAWSSites() {
                     var BATCH_SIZE = 4;
                     var cursor = 0;
+                    var totalSites = awsStationConfigs.length;
 
                     function loadNextBatch() {
-                        if (cursor >= awsStationConfigs.length) {
+                        if (cursor >= totalSites) {
                             console.log(`Lazy loading complete: ${awsStationsList.length} AWS station sites ready.`);
                             var cIdx = parseInt(slider.value) || 0;
                             syncAWSStationsRain(cIdx);
+                            LayerDownloadManager.finish("✓ All AWS Station & Hazard layers loaded!");
                             return;
                         }
 
                         var batch = awsStationConfigs.slice(cursor, cursor + BATCH_SIZE);
                         cursor += BATCH_SIZE;
+                        var pct = Math.min(96, Math.round((cursor / totalSites) * 100));
+
+                        LayerDownloadManager.start({
+                            title: "Layer still downloading, please wait until finish...",
+                            detail: `Downloading AWS Sites & Hazard Layers (${Math.min(cursor, totalSites)} / ${totalSites} ready)...`,
+                            initialPct: pct,
+                            sizeText: `${Math.min(cursor, totalSites)} / ${totalSites}`
+                        });
 
                         var batchPromises = batch.map(function (cfg) {
                             return initSynchronizedAWSLayer(cfg.id, cfg.url, cfg.name, cfg.region);
@@ -6501,6 +6911,8 @@
                         Promise.all(batchPromises).then(function () {
                             var cIdx = parseInt(slider.value) || 0;
                             syncAWSStationsRain(cIdx);
+                            var nextPct = Math.min(96, Math.round((cursor / totalSites) * 100));
+                            LayerDownloadManager.update(nextPct, `Downloading AWS Sites & Hazard Layers (${Math.min(cursor, totalSites)} / ${totalSites} ready)...`, `${Math.min(cursor, totalSites)} / ${totalSites}`);
                             if ('requestIdleCallback' in window) {
                                 requestIdleCallback(loadNextBatch, { timeout: 800 });
                             } else {
@@ -6668,7 +7080,7 @@
                     }
 
                     var url = frame.url;
-                    loadGeoJson(url)
+                    loadGeoJson(url, false)
                         .then(function (data) {
                             if (!data) return;
                             buildStationGridIndices(data);
@@ -7084,6 +7496,75 @@
                     return bestSt;
                 }
 
+                function getAwsAttributesAtPoint(lat, lng) {
+                    var fLat = parseFloat(lat);
+                    var fLng = parseFloat(lng);
+                    if (isNaN(fLat) || isNaN(fLng) || !window.awsStationsList) return null;
+
+                    // 1. Precise Check: Point inside an AWS station's hazard polygon
+                    for (var s = 0; s < awsStationsList.length; s++) {
+                        var st = awsStationsList[s];
+                        var feats = st.hazardFeatures || (st.hazardLayer && st.hazardLayer.toGeoJSON ? (st.hazardLayer.toGeoJSON().features || []) : []);
+                        for (var i = 0; i < feats.length; i++) {
+                            var f = feats[i];
+                            if (!f.geometry || !f.geometry.coordinates) continue;
+                            var rings = (f.geometry.type === 'Polygon') ? [f.geometry.coordinates[0]] :
+                                (f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates.map(function (c) { return c[0]; }) : []);
+                            for (var r = 0; r < rings.length; r++) {
+                                if (rings[r] && isPointInRing(fLng, fLat, rings[r])) {
+                                    var p = f.properties || {};
+                                    return {
+                                        isExactHazardZone: true,
+                                        stationName: st.displayName || p['Station Na'] || p['Site Name'] || 'AWS Site',
+                                        barangay: p['Barangay'] || st.brgy || '--',
+                                        municipality: p['Municipali'] || p['Municipality'] || st.muni || '--',
+                                        province: p['Province'] || st.prov || '--',
+                                        susceptibility: p['Landslide '] || p['Landslide'] || p['LS'] || st.lsLevel || 'High Landslide Susceptibility',
+                                        area: p['Area (ha)'] || null,
+                                        regionId: st.regionId,
+                                        regionName: st.regionName
+                                    };
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Proximity Check: Nearest AWS site within 25km radius
+                    var nearSt = findStationNearPoint(fLat, fLng, 25.0);
+                    if (nearSt) {
+                        var sp = nearSt.properties || {};
+                        return {
+                            isExactHazardZone: false,
+                            stationName: nearSt.displayName,
+                            barangay: nearSt.brgy || sp['Barangay'] || '--',
+                            municipality: nearSt.muni || sp['Municipali'] || sp['Municipality'] || '--',
+                            province: nearSt.prov || sp['Province'] || '--',
+                            susceptibility: nearSt.lsLevel || sp['Landslide '] || sp['LS'] || 'High Landslide Susceptibility',
+                            area: sp['Area (ha)'] || null,
+                            regionId: nearSt.regionId,
+                            regionName: nearSt.regionName
+                        };
+                    }
+
+                    // 3. Fallback: Monitored Province region
+                    var pointRegion = findRegionForPoint(fLat, fLng);
+                    if (pointRegion) {
+                        return {
+                            isExactHazardZone: false,
+                            stationName: pointRegion.regionName,
+                            barangay: '--',
+                            municipality: '--',
+                            province: pointRegion.province,
+                            susceptibility: 'Regional Risk Zone',
+                            area: null,
+                            regionId: pointRegion.rid,
+                            regionName: pointRegion.regionName
+                        };
+                    }
+
+                    return null;
+                }
+
                 function generateSoilApiMeteogramData(lat, lng, mode) {
                     var fLat = parseFloat(lat);
                     var fLng = parseFloat(lng);
@@ -7432,6 +7913,38 @@
                     // Safe days calculation with length check
                     var initialDays = initialSeries.length > 0 ? (initialSeries.length / 24).toFixed(1) : "0.0";
 
+                    var awsAttr = getAwsAttributesAtPoint(activePoint.lat, activePoint.lng);
+                    var awsAttrHtml = "";
+                    if (awsAttr) {
+                        var susText = awsAttr.susceptibility || 'High Landslide Susceptibility';
+                        var susCol = susText.toLowerCase().indexOf('very high') !== -1 ? '#ef4444' :
+                            (susText.toLowerCase().indexOf('high') !== -1 ? '#f87171' :
+                            (susText.toLowerCase().indexOf('mod') !== -1 ? '#fb923c' : '#22c55e'));
+                        var susBadgeClass = susText.toLowerCase().indexOf('very high') !== -1 ? 'badge-red' :
+                            (susText.toLowerCase().indexOf('high') !== -1 ? 'badge-orange' : 'badge-normal');
+                        var badgeText = susText.toLowerCase().indexOf('very high') !== -1 ? 'VERY HIGH' :
+                            (susText.toLowerCase().indexOf('high') !== -1 ? 'HIGH RISK' :
+                            (susText.toLowerCase().indexOf('mod') !== -1 ? 'MODERATE' : 'NORMAL'));
+
+                        awsAttrHtml = `
+                        <!-- AWS GeoJSON Barangay, Municipality, Province & Susceptibility Card -->
+                        <div style="background:rgba(15,23,42,0.85); border:1px solid #334155; border-radius:7px; padding:6px 9px; margin-bottom:8px; font-size:10.5px; line-height:1.45;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(51,65,85,0.7); padding-bottom:3px; margin-bottom:5px;">
+                                <div style="font-weight:700; color:#38bdf8; display:flex; align-items:center; gap:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; margin-right:6px;">
+                                    <span>📍</span> <span style="overflow:hidden; text-overflow:ellipsis;">${awsAttr.stationName || 'AWS Station Attributes'}</span>
+                                </div>
+                                <span class="landslide-badge ${susBadgeClass}" style="font-size:9px; padding:1px 6px; flex-shrink:0;">${badgeText}</span>
+                            </div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:3px 8px; font-size:10px;">
+                                <div><span style="color:#94a3b8;">Barangay:</span> <b style="color:#f8fafc;">${awsAttr.barangay}</b></div>
+                                <div><span style="color:#94a3b8;">Municipality:</span> <b style="color:#f8fafc;">${awsAttr.municipality}</b></div>
+                                <div><span style="color:#94a3b8;">Province:</span> <b style="color:#f8fafc;">${awsAttr.province}</b></div>
+                                <div><span style="color:#94a3b8;">Susceptibility:</span> <b style="color:${susCol};">${susText}</b></div>
+                            </div>
+                        </div>
+                        `;
+                    }
+
                     var popupHtml = `
                     <div style="font-family:'Segoe UI', system-ui, sans-serif; width:100%; box-sizing:border-box;">
                         <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px; border-bottom:1px solid #334155; padding-bottom:6px; gap:8px;">
@@ -7457,6 +7970,8 @@
                                 ${initialPeakText}
                             </div>
                         </div>
+
+                        ${awsAttrHtml}
 
                         ${regionalBannerHtml}
 
@@ -7696,6 +8211,19 @@
                                         <span style="color:#fb923c;">🟠 Orange: &ge;${pointRegion.thresholds.orange[0]}mm</span> | 
                                         <span style="color:#f87171;">🔴 Red: &ge;${pointRegion.thresholds.red}mm</span>
                                     </div>
+                                    ${(function () {
+                                        var mAttr = (typeof getAwsAttributesAtPoint === 'function') ? getAwsAttributesAtPoint(lat, lng) : null;
+                                        if (mAttr && (mAttr.barangay !== '--' || mAttr.municipality !== '--')) {
+                                            return `
+                                            <div style="margin-top:5px; padding-top:4px; border-top:1px dashed rgba(51,65,85,0.7); font-size:10px; color:#cbd5e1; display:flex; flex-wrap:wrap; gap:6px 14px;">
+                                                <span><b>Barangay:</b> <span style="color:#f8fafc;">${mAttr.barangay}</span></span>
+                                                <span><b>Municipality:</b> <span style="color:#f8fafc;">${mAttr.municipality}</span></span>
+                                                <span><b>Province:</b> <span style="color:#f8fafc;">${mAttr.province}</span></span>
+                                                <span><b>Susceptibility:</b> <span style="color:#f87171; font-weight:700;">${mAttr.susceptibility}</span></span>
+                                            </div>`;
+                                        }
+                                        return '';
+                                    })()}
                                 </div>
                                 <span class="landslide-badge ${regWarn.badgeClass}" style="font-size:11px; padding:3px 8px;">${regWarn.level}</span>
                             </div>

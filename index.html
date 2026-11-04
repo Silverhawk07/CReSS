@@ -4,6 +4,55 @@
 <head>
 
     <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+    <!-- High-Performance DNS Preconnects -->
+    <link rel="preconnect" href="https://server.arcgisonline.com" crossorigin />
+    <link rel="preconnect" href="https://basemaps.cartocdn.com" crossorigin />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link rel="dns-prefetch" href="https://raw.githubusercontent.com" />
+    <link rel="dns-prefetch" href="https://api.maptiler.com" />
+
+    <!-- High-Priority GeoJSON Preload Declarations: Download BEFORE page loads & parses -->
+    <link rel="preload" href="regional_landslide_thresholds.geojson" as="fetch" crossorigin="anonymous" />
+    <link rel="preload" href="overlay_pra_f001.geojson" as="fetch" crossorigin="anonymous" />
+    <link rel="preload" href="overlay_pra_f002.geojson" as="fetch" crossorigin="anonymous" />
+    <link rel="preload" href="overlay_pra_24h_day01.geojson" as="fetch" crossorigin="anonymous" />
+
+    <script>
+        /* ==========================================================================
+           CReSS Early GeoJSON Pre-Downloader Engine
+           Starts downloading critical GeoJSON files BEFORE DOM & Leaflet finish loading.
+           ========================================================================== */
+        window._cressPreloadedData = window._cressPreloadedData || {};
+        window._cressPreloadPromises = window._cressPreloadPromises || {};
+
+        (function earlyGeoJsonDownloader() {
+            var earlyTargets = [
+                'regional_landslide_thresholds.geojson',
+                'overlay_pra_f001.geojson',
+                'overlay_pra_f002.geojson',
+                'overlay_pra_24h_day01.geojson'
+            ];
+
+            earlyTargets.forEach(function (url) {
+                try {
+                    window._cressPreloadPromises[url] = fetch(url, { priority: 'high' })
+                        .then(function (res) {
+                            if (!res.ok) throw new Error('HTTP ' + res.status);
+                            return res.json();
+                        })
+                        .then(function (json) {
+                            window._cressPreloadedData[url] = json;
+                            return json;
+                        })
+                        .catch(function (err) {
+                            console.warn('[EarlyPreload] Could not early-fetch ' + url, err);
+                            return null;
+                        });
+                } catch (e) {}
+            });
+        })();
+    </script>
+
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
@@ -373,6 +422,19 @@
             border-color: #38bdf8;
         }
 
+        .cress-sliders-wrap {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-shrink: 0;
+        }
+
+        .cress-speed-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
         .cress-opacity-group {
             display: flex;
             align-items: center;
@@ -663,12 +725,28 @@
                 padding: 4px 6px;
             }
 
-            .cress-opacity-group {
+            .cress-sliders-wrap {
                 width: 100%;
+                display: flex;
+                flex-direction: row;
                 justify-content: space-between;
-                margin-top: 4px;
-                padding-top: 4px;
+                align-items: center;
+                gap: 8px;
+                margin-top: 6px;
+                padding-top: 6px;
                 border-top: 1px solid rgba(51, 65, 85, 0.4);
+                flex-wrap: wrap;
+            }
+
+            .cress-speed-group,
+            .cress-opacity-group {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                width: auto;
+                margin-top: 0;
+                padding-top: 0;
+                border-top: none;
             }
 
             #hover-coord-hud {
@@ -716,8 +794,27 @@
 
 
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Lazy-loading helper functions for heavy external scripts (Chart.js and html2canvas)
+        function loadScriptAsync(src) {
+            return new Promise(function (resolve, reject) {
+                var s = document.createElement('script');
+                s.src = src;
+                s.async = true;
+                s.onload = function () { resolve(); };
+                s.onerror = function (e) { reject(e); };
+                document.head.appendChild(s);
+            });
+        }
+        function ensureChartJs() {
+            if (window.Chart) return Promise.resolve(window.Chart);
+            return loadScriptAsync('https://cdn.jsdelivr.net/npm/chart.js');
+        }
+        function ensureHtml2Canvas() {
+            if (window.html2canvas) return Promise.resolve(window.html2canvas);
+            return loadScriptAsync('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+        }
+    </script>
 
     <div id="summary-card" class="cress-summary-card" onclick="toggleSummaryCard()">
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
@@ -759,7 +856,10 @@
                     style="font-weight:700; font-size:10px; color:#f8fafc; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
                     🏔️ Benguet (CAR)</div>
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
-                    <span id="rain-benguet" style="font-size:10px; color:#94a3b8; font-weight:600;">0.0 mm</span>
+                    <div>
+                        <div id="rain-benguet" style="font-size:10px; color:#cbd5e1; font-weight:600;">Rain: 0.0 mm</div>
+                        <div id="api-benguet" style="font-size:9.5px; color:#facc15; font-weight:600;">API: 0.0 mm</div>
+                    </div>
                     <span id="badge-benguet" class="landslide-badge badge-normal">NORM</span>
                 </div>
             </div>
@@ -769,7 +869,10 @@
                     style="font-weight:700; font-size:10px; color:#f8fafc; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
                     🌾 CALABARZON</div>
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
-                    <span id="rain-calabarzon" style="font-size:10px; color:#94a3b8; font-weight:600;">0.0 mm</span>
+                    <div>
+                        <div id="rain-calabarzon" style="font-size:10px; color:#cbd5e1; font-weight:600;">Rain: 0.0 mm</div>
+                        <div id="api-calabarzon" style="font-size:9.5px; color:#facc15; font-weight:600;">API: 0.0 mm</div>
+                    </div>
                     <span id="badge-calabarzon" class="landslide-badge badge-normal">NORM</span>
                 </div>
             </div>
@@ -779,7 +882,10 @@
                     style="font-weight:700; font-size:10px; color:#f8fafc; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
                     🌋 Bicol</div>
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
-                    <span id="rain-bicol" style="font-size:10px; color:#94a3b8; font-weight:600;">0.0 mm</span>
+                    <div>
+                        <div id="rain-bicol" style="font-size:10px; color:#cbd5e1; font-weight:600;">Rain: 0.0 mm</div>
+                        <div id="api-bicol" style="font-size:9.5px; color:#facc15; font-weight:600;">API: 0.0 mm</div>
+                    </div>
                     <span id="badge-bicol" class="landslide-badge badge-normal">NORM</span>
                 </div>
             </div>
@@ -789,7 +895,10 @@
                     style="font-weight:700; font-size:10px; color:#f8fafc; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
                     🌊 Samar</div>
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
-                    <span id="rain-samar" style="font-size:10px; color:#94a3b8; font-weight:600;">0.0 mm</span>
+                    <div>
+                        <div id="rain-samar" style="font-size:10px; color:#cbd5e1; font-weight:600;">Rain: 0.0 mm</div>
+                        <div id="api-samar" style="font-size:9.5px; color:#facc15; font-weight:600;">API: 0.0 mm</div>
+                    </div>
                     <span id="badge-samar" class="landslide-badge badge-normal">NORM</span>
                 </div>
             </div>
@@ -830,6 +939,9 @@
             <button id="tab-pra" class="modal-tab-btn" onclick="switchModalVar('pra')"
                 style="flex: 1; min-width: 90px; background: #0284c7; color: white; border: none; padding: 7px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;">🌧️
                 Rain</button>
+            <button id="tab-api" class="modal-tab-btn" onclick="switchModalVar('api')"
+                style="flex: 1; min-width: 110px; background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 7px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;">🌱
+                Soil API</button>
             <button id="tab-vort" class="modal-tab-btn" onclick="switchModalVar('vort')"
                 style="flex: 1; min-width: 90px; background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 7px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;">🌀
                 Vorticity</button>
@@ -886,8 +998,13 @@
             <button id="play-btn"
                 style="background: #16a34a; color: white; border: none; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 12px; min-height: 36px; min-width: 74px; display: inline-flex; align-items: center; justify-content: center; transition: all 0.2s; box-shadow: 0 4px 10px rgba(22, 163, 74, 0.4);">▶
                 Play</button>
-            <input type="range" id="time-slider" min="0" max="0" value="0"
-                style="flex: 1; min-width: 0; cursor: pointer;">
+            <div id="time-slider-wrapper" style="flex: 1; min-width: 0; position: relative; display: flex; align-items: center; height: 18px;">
+                <div style="position: absolute; left: 0; right: 0; height: 6px; background: #334155; border-radius: 4px; overflow: hidden; pointer-events: none;">
+                    <div id="slider-buffer-bar" style="height: 100%; width: 0%; background: linear-gradient(90deg, rgba(56, 189, 248, 0.45), rgba(14, 165, 233, 0.65)); border-radius: 4px; transition: width 0.25s ease;" title="Pre-downloaded & buffered frames"></div>
+                </div>
+                <input type="range" id="time-slider" min="0" max="0" value="0"
+                    style="width: 100%; position: relative; z-index: 2; background: transparent; cursor: pointer; margin: 0;">
+            </div>
             <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: #94a3b8; cursor: pointer; user-select: none; flex-shrink: 0;">
                 <input type="checkbox" id="loop-checkbox" checked style="cursor: pointer; accent-color: #38bdf8;"> Loop
             </label>
@@ -915,11 +1032,29 @@
                     title="Toggle AWS Sites & Hazard Zones Overlay (ON / OFF)">
                     📍 AWS Sites: ON
                 </button>
+                <button id="buffer-status-btn" onclick="togglePreloadBuffer()" class="cress-select"
+                    style="display:inline-flex; align-items:center; gap:4px; border-color:#0284c7; color:#38bdf8; font-weight:600;"
+                    title="Intelligent GeoJSON Buffering: Pre-downloads forecast frames ahead of time for lag-free playback and scrubbing">
+                    <span id="buffer-status-dot" style="width:7px; height:7px; border-radius:50%; background:#22c55e; display:inline-block;"></span>
+                    <span id="buffer-status-text">Buffer: Ready</span>
+                </button>
             </div>
-            <div class="cress-opacity-group">
-                <span class="cress-ctrl-label" id="opacity-label">Opacity: 80%</span>
-                <input type="range" id="opacity-slider" min="0" max="100" value="80"
-                    style="width: 70px; cursor: pointer;">
+            <div class="cress-sliders-wrap">
+                <div class="cress-speed-group" title="Adjust animation playback speed (0.5x to 4.0x)">
+                    <span class="cress-ctrl-label" id="speed-label" style="min-width: 62px; font-weight: 700; color: #38bdf8;">Speed: 1x</span>
+                    <input type="range" id="speed-slider" min="0.5" max="4.0" step="0.25" value="1.0"
+                        style="width: 65px; cursor: pointer; accent-color: #38bdf8;" title="Speed slider: 0.5x (slow) to 4.0x (fast)">
+                    <button id="speedup-btn" type="button" class="cress-select"
+                        style="padding: 2px 7px; font-size: 10px; font-weight: 700; border-color: #38bdf8; color: #38bdf8; display: inline-flex; align-items: center; gap: 3px;"
+                        title="Quick Speed Up (cycles 1x → 2x → 3x → 4x → 1x)">
+                        ⏩ Speedup
+                    </button>
+                </div>
+                <div class="cress-opacity-group">
+                    <span class="cress-ctrl-label" id="opacity-label">Opacity: 80%</span>
+                    <input type="range" id="opacity-slider" min="0" max="100" value="80"
+                        style="width: 65px; cursor: pointer;">
+                </div>
             </div>
         </div>
     </div>
@@ -4681,10 +4816,16 @@
                 var title = document.getElementById("slider-title");
                 var slider = document.getElementById("time-slider");
                 var playBtn = document.getElementById("play-btn");
+                var speedSlider = document.getElementById("speed-slider");
+                var speedLabel = document.getElementById("speed-label");
+                var speedupBtn = document.getElementById("speedup-btn");
                 var opacitySlider = document.getElementById("opacity-slider");
                 var varSelect = document.getElementById("var-select");
                 var accumSelect = document.getElementById("accum-mode-select");
                 var legendContainer = document.getElementById("legend-container");
+
+                var playbackSpeed = 1.0;
+                var BASE_PLAY_INTERVAL = 600; // Standard 1x playback step interval in ms
 
                 var currentOpacity = parseFloat(opacitySlider.value) / 100.0;
                 var currentVar = "pra";
@@ -4722,8 +4863,201 @@
                 var isPlaying = false;
                 var timerId = null;
                 var chartInstance = null;
-                var geoJsonCache = {};
                 var currentGeoJsonLayer = null;
+
+                // =========================================================================
+                // High-Speed GeoJSON Pre-Downloader, In-Memory Cache & Buffer Manager
+                // =========================================================================
+                var geoJsonCache = Object.assign({}, window._cressPreloadedData || {});
+                window.geoJsonCache = geoJsonCache;
+                var inFlightRequests = {};
+                var preloadQueue = [];
+                var activePreloadCount = 0;
+                var MAX_CONCURRENT_PRELOAD = 2;
+                var isPreloadActive = false;
+
+                function updateBufferUI() {
+                    if (!activeFrames || activeFrames.length === 0) return;
+                    var cachedCount = 0;
+                    for (var i = 0; i < activeFrames.length; i++) {
+                        if (geoJsonCache[activeFrames[i].url]) {
+                            cachedCount++;
+                        }
+                    }
+                    var pct = Math.round((cachedCount / activeFrames.length) * 100);
+                    var bufferBar = document.getElementById('slider-buffer-bar');
+                    if (bufferBar) {
+                        bufferBar.style.width = pct + '%';
+                        bufferBar.title = `Buffered: ${cachedCount} / ${activeFrames.length} frames (${pct}%)`;
+                    }
+                    var btnText = document.getElementById('buffer-status-text');
+                    var btnDot = document.getElementById('buffer-status-dot');
+                    if (btnText && !isPreloadActive) {
+                        btnText.innerText = `Buffer: ${pct}%`;
+                    }
+                    if (btnDot && !isPreloadActive) {
+                        btnDot.style.background = pct >= 95 ? '#22c55e' : (pct >= 30 ? '#38bdf8' : '#94a3b8');
+                    }
+                }
+
+                function loadGeoJson(url) {
+                    if (!url) return Promise.reject(new Error("No URL provided"));
+
+                    // 1. Instant Cache hit (0ms)
+                    if (geoJsonCache[url]) {
+                        return Promise.resolve(geoJsonCache[url]);
+                    }
+
+                    // 2. Early Preload promise from <head>
+                    if (window._cressPreloadPromises && window._cressPreloadPromises[url]) {
+                        return window._cressPreloadPromises[url].then(function (data) {
+                            if (data) {
+                                geoJsonCache[url] = data;
+                                updateBufferUI();
+                                return data;
+                            }
+                            return fetchDirect(url);
+                        });
+                    }
+
+                    // 3. Check in-flight requests (prevent duplicate network fetches)
+                    if (inFlightRequests[url]) {
+                        return inFlightRequests[url];
+                    }
+
+                    return fetchDirect(url);
+                }
+
+                function fetchDirect(url) {
+                    inFlightRequests[url] = fetch(url)
+                        .then(function (res) {
+                            if (!res.ok) throw new Error("HTTP " + res.status + " for " + url);
+                            return res.json();
+                        })
+                        .then(function (data) {
+                            geoJsonCache[url] = data;
+                            delete inFlightRequests[url];
+                            updateBufferUI();
+                            return data;
+                        })
+                        .catch(function (err) {
+                            delete inFlightRequests[url];
+                            throw err;
+                        });
+
+                    return inFlightRequests[url];
+                }
+
+                function triggerPredictivePreload(centerIndex) {
+                    if (!activeFrames || activeFrames.length === 0) return;
+
+                    var lookahead = isPlaying ? 16 : 8;
+                    var targets = [];
+
+                    // 1. Look ahead upcoming steps
+                    for (var i = 1; i <= lookahead; i++) {
+                        var idx = centerIndex + i;
+                        if (idx < activeFrames.length) {
+                            targets.push(activeFrames[idx].url);
+                        }
+                    }
+
+                    // 2. Previous 2 steps for backwards scrubbing
+                    for (var b = 1; b <= 2; b++) {
+                        var bIdx = centerIndex - b;
+                        if (bIdx >= 0) {
+                            targets.push(activeFrames[bIdx].url);
+                        }
+                    }
+
+                    // 3. Preload corresponding PRA step if viewing another variable (for thresholds)
+                    if (currentVar !== "pra" && varsData["pra"] && varsData["pra"][accumMode]) {
+                        var praList = varsData["pra"][accumMode];
+                        for (var p = 0; p <= Math.min(4, lookahead); p++) {
+                            var pIdx = centerIndex + p;
+                            if (pIdx < praList.length) {
+                                targets.push(praList[pIdx].url);
+                            }
+                        }
+                    }
+
+                    targets = targets.filter(function (u) {
+                        return u && !geoJsonCache[u] && preloadQueue.indexOf(u) === -1 && !inFlightRequests[u];
+                    });
+
+                    if (targets.length > 0) {
+                        preloadQueue.push(...targets);
+                        processPreloadQueue();
+                    }
+                }
+
+                function processPreloadQueue() {
+                    if (activePreloadCount >= MAX_CONCURRENT_PRELOAD || preloadQueue.length === 0) return;
+
+                    var url = preloadQueue.shift();
+                    if (!url || geoJsonCache[url]) {
+                        return processPreloadQueue();
+                    }
+
+                    activePreloadCount++;
+                    loadGeoJson(url)
+                        .catch(function () {
+                            // Non-fatal background preload catch
+                        })
+                        .finally(function () {
+                            activePreloadCount--;
+                            updateBufferUI();
+                            if ('requestIdleCallback' in window) {
+                                requestIdleCallback(processPreloadQueue, { timeout: 350 });
+                            } else {
+                                setTimeout(processPreloadQueue, 40);
+                            }
+                        });
+
+                    if (activePreloadCount < MAX_CONCURRENT_PRELOAD && preloadQueue.length > 0) {
+                        processPreloadQueue();
+                    }
+                }
+
+                window.togglePreloadBuffer = function () {
+                    if (!activeFrames || activeFrames.length === 0) return;
+                    isPreloadActive = true;
+                    var curIdx = parseInt(slider.value) || 0;
+                    var btnText = document.getElementById('buffer-status-text');
+                    var btnDot = document.getElementById('buffer-status-dot');
+                    if (btnText) btnText.innerText = "Buffering...";
+                    if (btnDot) btnDot.style.background = "#f59e0b";
+
+                    var targets = [];
+                    for (var i = 1; i <= 24; i++) {
+                        var idx = curIdx + i;
+                        if (idx < activeFrames.length && !geoJsonCache[activeFrames[idx].url]) {
+                            targets.push(activeFrames[idx].url);
+                        }
+                    }
+
+                    if (targets.length === 0) {
+                        for (var j = 0; j < activeFrames.length; j++) {
+                            if (!geoJsonCache[activeFrames[j].url]) {
+                                targets.push(activeFrames[j].url);
+                                if (targets.length >= 24) break;
+                            }
+                        }
+                    }
+
+                    if (targets.length > 0) {
+                        preloadQueue.unshift(...targets);
+                        processPreloadQueue();
+                    } else {
+                        isPreloadActive = false;
+                        if (btnText) btnText.innerText = "Buffer: 100%";
+                        if (btnDot) btnDot.style.background = "#22c55e";
+                    }
+                    setTimeout(function () {
+                        isPreloadActive = false;
+                        updateBufferUI();
+                    }, 4000);
+                };
 
                 if (typeof qt !== 'undefined') {
                     new QWebChannel(qt.webChannelTransport, function (channel) {
@@ -4810,9 +5144,9 @@
                     if (!t) return { level: 'NORMAL', color: '#22c55e', text: 'Normal', badgeClass: 'badge-normal', border: '#16a34a' };
                     if (val >= t.red) {
                         return { level: 'RED', color: '#ef4444', text: 'Red Warning (Level 3)', badgeClass: 'badge-red', border: '#f87171' };
-                    } else if (val >= t.orange[0] && val < t.orange[1]) {
+                    } else if (val >= t.orange[0]) {
                         return { level: 'ORANGE', color: '#f97316', text: 'Orange Warning (Level 2)', badgeClass: 'badge-orange', border: '#fb923c' };
-                    } else if (val >= t.yellow[0] && val < t.yellow[1]) {
+                    } else if (val >= t.yellow[0]) {
                         return { level: 'YELLOW', color: '#eab308', text: 'Yellow Warning (Level 1)', badgeClass: 'badge-yellow', border: '#facc15' };
                     } else {
                         return { level: 'NORMAL', color: '#22c55e', text: 'Normal (< 7.5 mm)', badgeClass: 'badge-normal', border: 'rgba(34,197,94,0.4)' };
@@ -5034,14 +5368,26 @@
                     return null;
                 }
 
-                window.inspectPointMeteogram = function (lat, lng, evt) {
+                window.inspectPointMeteogram = function (lat, lng, evt, targetVar) {
                     if (evt) {
                         if (typeof evt.stopPropagation === 'function') evt.stopPropagation();
                         if (typeof evt.preventDefault === 'function') evt.preventDefault();
                     }
                     var targetLatLng = L.latLng(parseFloat(lat), parseFloat(lng));
                     var rainFeat = findRainFeatureAtPoint(parseFloat(lat), parseFloat(lng));
-                    handleMeteogramClick(targetLatLng, rainFeat);
+                    if (targetVar === 'api') {
+                        activePoint = {
+                            lat: targetLatLng.lat.toFixed(5),
+                            lng: targetLatLng.lng.toFixed(5),
+                            latlng: targetLatLng,
+                            feature: rainFeat
+                        };
+                        var modal = document.getElementById('meteogram-modal');
+                        if (modal) modal.style.display = 'block';
+                        switchModalVar('api');
+                    } else {
+                        handleMeteogramClick(targetLatLng, rainFeat);
+                    }
                 };
 
                 window.handleMeteogramClick = function (latlng, feature, evt) {
@@ -5128,13 +5474,12 @@
                 function evaluateRegionalThresholds(praData) {
                     var idx = parseInt(slider.value) || 0;
                     if (window.awsStationsList && window.awsStationsList.length > 0) {
-                        syncAWSStationsRain(idx);
+                        syncAWSStationsRain(idx, praData);
                     }
                 }
 
-                // Load Regional Landslide Threshold Boundaries
-                fetch('regional_landslide_thresholds.geojson')
-                    .then(function (r) { return r.json(); })
+                // Load Regional Landslide Threshold Boundaries (Pre-downloaded & cached)
+                loadGeoJson('regional_landslide_thresholds.geojson')
                     .then(function (data) {
                         regionalGeoJsonData = data;
                         ensurePrecomputedProvinces();
@@ -5193,7 +5538,7 @@
                 }
 
                 function getStationTooltipHtml(st) {
-                    var warn = st.alertWarn || { level: 'NORMAL', text: 'Normal', color: '#4ade80' };
+                    var warn = st.alertWarn || { level: 'NORMAL', text: 'Normal', color: '#22c55e' };
                     var regName = st.regionName || '';
                     var apiStr = (st.apiValue !== undefined) ? st.apiValue.toFixed(1) : '0.0';
                     var rainStr = (st.currentRain !== undefined) ? st.currentRain.toFixed(1) : '0.0';
@@ -5202,8 +5547,9 @@
                     return `
                         <div style="font-family:'Segoe UI',system-ui,sans-serif; font-size:11px; line-height:1.45; padding:2px;">
                             <b style="color:#38bdf8;">📍 ${st.displayName}</b> (${regName})<br/>
-                            <span>Rain (+1h): <b>${rainStr} mm</b> | Soil API: <b style="color:#facc15;">${apiStr} mm</b></span><br/>
-                            <span>Conf: <b style="color:#cbd5e1;">${confStr}</b> &bull; Alert: <b style="color:${warn.color};">${warn.level}</b></span>
+                            <div style="margin-top:2px;"><b>Current Rainfall:</b> <span style="color:${warn.level !== 'NORMAL' ? warn.color : '#f8fafc'}; font-weight:700;">${rainStr} mm</span></div>
+                            <div><b>Soil Moisture (API):</b> <b style="color:#facc15;">${apiStr} mm</b></div>
+                            <div style="margin-top:2px;">Alert: <b style="color:${warn.color};">${warn.level}</b> &bull; Conf: <b style="color:#cbd5e1;">${confStr}</b></div>
                         </div>
                     `;
                 }
@@ -5214,7 +5560,7 @@
                     var t = REGIONAL_THRESHOLDS[st.regionId] || {};
                     var rainStr = (st.currentRain !== undefined) ? st.currentRain.toFixed(1) : '0.0';
                     var apiStr = (st.apiValue !== undefined) ? st.apiValue.toFixed(1) : '0.0';
-                    var p7Str = (st.past7DaysRain !== undefined) ? st.past7DaysRain.toFixed(1) : '25.0';
+                    var p7Str = (st.past7DaysRain !== undefined) ? st.past7DaysRain.toFixed(1) : '0.0';
                     var confStr = st.confidence || 'High';
                     var dayStr = st.activeDay || 1;
 
@@ -5228,54 +5574,64 @@
                             <!-- Landslide Soil Saturation & Alert Banner -->
                             <div style="background:rgba(30,41,59,0.85); border:1px solid ${warn.border || '#334155'}; border-radius:8px; padding:7px 10px; margin-bottom:8px;">
                                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                                    <span style="color:#cbd5e1; font-size:11px;">Soil Moisture (API):</span>
-                                    <b style="color:#facc15; font-size:14px;">${apiStr} mm</b>
+                                    <span style="color:#cbd5e1; font-size:11px;">Active Rainfall:</span>
+                                    <b style="color:${warn.level !== 'NORMAL' ? warn.color : '#f8fafc'}; font-size:14px;">${rainStr} mm</b>
                                 </div>
                                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                                    <span style="color:#94a3b8; font-size:10.5px;">Landslide Alert:</span>
+                                    <span style="color:#cbd5e1; font-size:11px;">Soil Moisture (API):</span>
+                                    <b style="color:#facc15; font-size:13px;">${apiStr} mm</b>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                    <span style="color:#94a3b8; font-size:10.5px;">Regional Warning:</span>
                                     <span class="landslide-badge ${warn.badgeClass || 'badge-normal'}" style="font-size:10px; padding:2px 7px;">${warn.level}</span>
                                 </div>
                                 <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; border-top:1px dashed #334155; padding-top:4px; margin-top:4px;">
                                     <span style="color:#94a3b8;">Confidence: <b style="color:#38bdf8;">${confStr} (Day ${dayStr})</b></span>
-                                    <span style="color:#94a3b8;">7-AP AWS Rain: <b style="color:#4ade80;">${p7Str} mm</b></span>
+                                    <span style="color:#94a3b8;">7-AP Rain: <b style="color:#4ade80;">${p7Str} mm</b></span>
                                 </div>
                             </div>
 
                             <!-- Regional Threshold Info -->
                             <div style="background:rgba(15,23,42,0.65); border:1px solid #334155; border-radius:6px; padding:6px 8px; font-size:10px; line-height:1.45; margin-bottom:8px;">
-                                <div style="font-weight:700; color:#cbd5e1; margin-bottom:2px;">Regional API Thresholds (${regName}):</div>
+                                <div style="font-weight:700; color:#cbd5e1; margin-bottom:2px;">Regional Thresholds (${regName}):</div>
                                 <div><span style="color:#facc15;">🟡 Yellow (L1):</span> ${t.yellow ? t.yellow[0] + ' to < ' + t.yellow[1] + ' mm' : '--'}</div>
                                 <div><span style="color:#fb923c;">🟠 Orange (L2):</span> ${t.orange ? t.orange[0] + ' to < ' + t.orange[1] + ' mm' : '--'}</div>
                                 <div><span style="color:#f87171;">🔴 Red (L3):</span> &ge; ${t.red ? t.red + ' mm' : '--'}</div>
                             </div>
 
-                            <button type="button" class="btn-inspect-pt-meteogram" onclick="window.inspectPointMeteogram(${st.lat.toFixed(5)}, ${st.lng.toFixed(5)}, event)">
-                                📊 Open Meteogram for this AWS Site
-                            </button>
+                            <div style="display:flex; gap:6px; margin-top:6px;">
+                                <button type="button" class="btn-inspect-pt-meteogram" style="flex:1;" onclick="window.inspectPointMeteogram(${st.lat.toFixed(5)}, ${st.lng.toFixed(5)}, event, 'pra')">
+                                    📊 Rain Meteogram
+                                </button>
+                                <button type="button" class="btn-inspect-pt-meteogram" style="flex:1; border-color:#facc15; color:#facc15;" onclick="window.inspectPointMeteogram(${st.lat.toFixed(5)}, ${st.lng.toFixed(5)}, event, 'api')">
+                                    🌱 Soil API Graph
+                                </button>
+                            </div>
                         </div>
                     `;
                 }
 
                 function getHazardZoneStyle(stationObj) {
+                    var rainVal = (stationObj && stationObj.currentRain !== undefined) ? stationObj.currentRain : 0.0;
                     var apiVal = (stationObj && stationObj.apiValue !== undefined) ? stationObj.apiValue : 0.0;
-                    var warn = (stationObj && stationObj.alertWarn) || { level: 'NORMAL', color: '#22c55e', border: '#16a34a' };
+                    var warn = (stationObj && stationObj.alertWarn) || getWarningForValue(stationObj ? stationObj.regionId : 'benguet', Math.max(rainVal, apiVal));
                     var lvl = warn.level || 'NORMAL';
 
-                    // Render transparent if API soil moisture is below minimum threshold
-                    if (apiVal <= 5.0) {
+                    // If Normal alert and negligible rainfall, keep coverage subtle/transparent per design
+                    if (lvl === 'NORMAL' && rainVal <= 0.0 && apiVal <= 5.0) {
                         return {
-                            color: 'transparent',
-                            weight: 0,
-                            dashArray: null,
+                            color: 'rgba(56, 189, 248, 0.4)',
+                            weight: 1.0,
+                            dashArray: '3, 4',
                             fillColor: 'transparent',
                             fillOpacity: 0.0,
-                            opacity: 0.0
+                            opacity: 0.4
                         };
                     }
 
                     var strokeCol = '#16a34a';
                     var fillCol = '#22c55e';
-                    var fillOp = 0.16 * currentOpacity;
+                    var fillOp = 0.18 * currentOpacity;
                     var lineOp = 0.70 * currentOpacity;
                     var weight = 1.4;
                     var dash = '3, 3';
@@ -5286,6 +5642,8 @@
                         strokeCol = '#ea580c'; fillCol = '#f97316'; fillOp = 0.36 * currentOpacity; lineOp = 0.92 * currentOpacity; weight = 2.4; dash = null;
                     } else if (lvl === 'YELLOW') {
                         strokeCol = '#ca8a04'; fillCol = '#eab308'; fillOp = 0.28 * currentOpacity; lineOp = 0.85 * currentOpacity; weight = 2.0; dash = '4, 4';
+                    } else {
+                        strokeCol = '#16a34a'; fillCol = '#22c55e'; fillOp = 0.15 * currentOpacity; lineOp = 0.65 * currentOpacity; weight = 1.4; dash = '3, 3';
                     }
 
                     return {
@@ -5402,11 +5760,14 @@
                                                 var alertLvl = (stationObj && stationObj.alertWarn) ? stationObj.alertWarn.level : 'NORMAL';
                                                 var alertCol = (rainVal > 0 && stationObj && stationObj.alertWarn) ? stationObj.alertWarn.color : '#94a3b8';
                                                 var rainMm = rainVal.toFixed(1);
+                                                var apiMm = (stationObj && stationObj.apiValue !== undefined) ? stationObj.apiValue.toFixed(1) : '0.0';
                                                 layer.bindTooltip(`
-                                                    <div style="font-family:'Segoe UI',system-ui,sans-serif; font-size:11px; padding:2px;">
+                                                    <div style="font-family:'Segoe UI',system-ui,sans-serif; font-size:11px; padding:2px; line-height:1.45;">
                                                         <b style="color:#38bdf8;">⚠️ ${stName}</b> &bull; RIL Hazard Coverage<br/>
                                                         <span style="color:#cbd5e1;">${lsLevel}</span><br/>
-                                                        <b>Rain:</b> ${rainMm} mm &bull; <b>Status:</b> <span style="color:${alertCol}; font-weight:700;">${rainVal <= 0 ? 'No Rain (Transparent)' : alertLvl}</span>
+                                                        <div><b>Current Rainfall:</b> <span style="color:${alertCol}; font-weight:700;">${rainMm} mm</span></div>
+                                                        <div><b>Soil Moisture (API):</b> <b style="color:#facc15;">${apiMm} mm</b></div>
+                                                        <div><b>Status:</b> <span style="color:${alertCol}; font-weight:700;">${rainVal <= 0 ? 'No Rain (Transparent)' : alertLvl}</span></div>
                                                     </div>
                                                 `, { sticky: true, opacity: 0.95 }).openTooltip();
                                             },
@@ -5431,15 +5792,24 @@
                                                         </div>
                                                         <div style="margin-bottom:4px;"><b>Station:</b> <span style="color:#38bdf8;">${stName}</span> (${regN})</div>
                                                         <div style="margin-bottom:4px; display:flex; justify-content:space-between;">
-                                                            <span style="color:#94a3b8;">Active Rainfall:</span>
+                                                            <span style="color:#94a3b8;">Current Rainfall:</span>
                                                             <b style="color:${rainVal > 0 ? '#facc15' : '#94a3b8'};">${rainMm} mm</b>
+                                                        </div>
+                                                        <div style="margin-bottom:4px; display:flex; justify-content:space-between;">
+                                                            <span style="color:#94a3b8;">Soil Moisture (API):</span>
+                                                            <b style="color:#facc15;">${(stationObj && stationObj.apiValue !== undefined ? stationObj.apiValue.toFixed(1) : '0.0')} mm</b>
                                                         </div>
                                                         <div style="margin-bottom:4px;"><b>Susceptibility:</b> <span style="color:#f87171; font-weight:700;">${lsLevel}</span></div>
                                                         <div style="margin-bottom:4px; color:#cbd5e1;"><b>Location:</b> ${brgy ? brgy + ', ' : ''}${muni ? muni + ', ' : ''}${prov}</div>
                                                         ${area ? `<div style="margin-bottom:6px; color:#94a3b8; font-size:10px;"><b>Area:</b> ${parseFloat(area).toFixed(2)} ha</div>` : ''}
-                                                        <button type="button" class="btn-inspect-pt-meteogram" style="margin-top:4px;" onclick="window.inspectPointMeteogram(${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}, event)">
-                                                            📊 Inspect Point Meteogram
-                                                        </button>
+                                                        <div style="display:flex; gap:6px; margin-top:6px;">
+                                                            <button type="button" class="btn-inspect-pt-meteogram" style="flex:1;" onclick="window.inspectPointMeteogram(${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}, event, 'pra')">
+                                                                📊 Rain Meteogram
+                                                            </button>
+                                                            <button type="button" class="btn-inspect-pt-meteogram" style="flex:1; border-color:#facc15; color:#facc15;" onclick="window.inspectPointMeteogram(${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}, event, 'api')">
+                                                                🌱 Soil API Graph
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                 `;
                                                 L.popup({ offset: [0, -5], className: 'cress-meteogram-popup' })
@@ -5624,52 +5994,131 @@
                    ========================================================================== */
 
                 /**
-                 * High-Performance Zonal Max Forecast Extraction
-                 * Uses cached buffer geometries and BBox pre-filtering to eliminate lag.
+                 * Helper to retrieve active PRA GeoJSON data from cache or current frames.
                  */
-                function getZonalMaxForecastForStation(stationObj, cressLayer) {
+                function getActivePraGeoJson(stepIdx) {
+                    var praFrames = (varsData && varsData["pra"]) ? varsData["pra"][accumMode] : null;
+                    var targetIdx = (stepIdx !== undefined) ? stepIdx : (parseInt(slider.value) || 0);
+                    if (praFrames && praFrames[targetIdx]) {
+                        var praUrl = praFrames[targetIdx].url;
+                        if (geoJsonCache[praUrl]) return geoJsonCache[praUrl];
+                        var matchedKey = Object.keys(geoJsonCache).find(function (k) {
+                            return k.endsWith(praUrl) || praUrl.endsWith(k);
+                        });
+                        if (matchedKey) return geoJsonCache[matchedKey];
+                    }
+                    if (currentVar === "pra" && activeFrames && activeFrames[targetIdx]) {
+                        var curUrl = activeFrames[targetIdx].url;
+                        if (geoJsonCache[curUrl]) return geoJsonCache[curUrl];
+                        var mKey = Object.keys(geoJsonCache).find(function (k) {
+                            return k.endsWith(curUrl) || curUrl.endsWith(k);
+                        });
+                        if (mKey) return geoJsonCache[mKey];
+                    }
+                    return null;
+                }
+
+                /**
+                 * High-Performance Zonal Max Forecast Extraction
+                 * Evaluates active rainfall contours across station buffer (6km Benguet / 18km plains).
+                 */
+                function getZonalMaxForecastForStation(stationObj, praDataInput) {
                     if (!stationObj || stationObj.lat === null || stationObj.lng === null) return 0.0;
 
-                    // Terrain-aware radius: 6 km in steep mountain terrain (CAR), 15 km in coastal/plains
-                    var radiusKm = (stationObj.regionId === 'benguet') ? 6.0 : 15.0;
-
-                    if (!stationObj.bufferPoly) {
-                        var pt = turf.point([stationObj.lng, stationObj.lat]);
-                        stationObj.bufferPoly = turf.buffer(pt, radiusKm, { units: 'kilometers' });
-                        stationObj.bbox = turf.bbox(stationObj.bufferPoly); // [minLng, minLat, maxLng, maxLat]
+                    var praData = null;
+                    if (praDataInput && praDataInput.features && Array.isArray(praDataInput.features)) {
+                        praData = praDataInput;
+                    } else {
+                        praData = getActivePraGeoJson();
                     }
 
-                    if (!cressLayer || !stationObj.bufferPoly) return 0.0;
+                    if (!praData || !praData.features || praData.features.length === 0) return 0.0;
 
-                    try {
-                        var sBbox = stationObj.bbox;
-                        var zonalMaxRain = 0.0;
+                    // Terrain-aware radius: 0.06 deg (~6.5 km) in steep mountain terrain (Benguet/CAR), 0.16 deg (~18 km) elsewhere
+                    var radiusDeg = (stationObj.regionId === 'benguet') ? 0.06 : 0.16;
+                    var rSq = radiusDeg * radiusDeg;
+                    var zonalMax = 0.0;
+                    var sLng = stationObj.lng;
+                    var sLat = stationObj.lat;
+                    var features = praData.features;
 
-                        cressLayer.eachLayer(function (gridLayer) {
-                            if (gridLayer.feature) {
-                                // Bounding-box pre-filter: skips non-overlapping cells in < 0.1ms
-                                var fBounds = gridLayer.getBounds ? gridLayer.getBounds() : null;
-                                if (fBounds) {
-                                    if (fBounds.getSouth() > sBbox[3] || fBounds.getNorth() < sBbox[1] ||
-                                        fBounds.getEast() < sBbox[0] || fBounds.getWest() > sBbox[2]) {
-                                        return;
-                                    }
-                                }
+                    for (var i = 0; i < features.length; i++) {
+                        var feat = features[i];
+                        var val = getFeatureCurrentValue(feat, "pra");
+                        if (val <= zonalMax) continue;
 
-                                // Intersection check on candidate cells only
-                                if (turf.booleanIntersects(stationObj.bufferPoly, gridLayer.feature)) {
-                                    var cellRain = getFeatureCurrentValue(gridLayer.feature, "pra") || 0.0;
-                                    if (cellRain > zonalMaxRain) {
-                                        zonalMaxRain = cellRain;
-                                    }
+                        var geom = feat.geometry;
+                        if (!geom || !geom.coordinates) continue;
+
+                        // Cache feature-level bounding box for microsecond pre-filtering
+                        if (!feat._bbox) {
+                            var fMinX = Infinity, fMaxX = -Infinity, fMinY = Infinity, fMaxY = -Infinity;
+                            var allRings = (geom.type === 'Polygon') ? [geom.coordinates[0]] :
+                                (geom.type === 'MultiPolygon' ? geom.coordinates.map(function (c) { return c[0]; }) : []);
+                            for (var ar = 0; ar < allRings.length; ar++) {
+                                var rk = allRings[ar];
+                                if (!rk) continue;
+                                for (var vk = 0; vk < rk.length; vk++) {
+                                    var vx = rk[vk][0], vy = rk[vk][1];
+                                    if (vx < fMinX) fMinX = vx;
+                                    if (vx > fMaxX) fMaxX = vx;
+                                    if (vy < fMinY) fMinY = vy;
+                                    if (vy > fMaxY) fMaxY = vy;
                                 }
                             }
-                        });
+                            feat._bbox = [fMinX, fMinY, fMaxX, fMaxY];
+                        }
 
-                        return zonalMaxRain;
-                    } catch (err) {
-                        return 0.0;
+                        var fb = feat._bbox;
+                        if (sLng < fb[0] - radiusDeg || sLng > fb[2] + radiusDeg ||
+                            sLat < fb[1] - radiusDeg || sLat > fb[3] + radiusDeg) {
+                            continue;
+                        }
+
+                        var rings = (geom.type === 'Polygon') ? [geom.coordinates[0]] :
+                            (geom.type === 'MultiPolygon' ? geom.coordinates.map(function (c) { return c[0]; }) : []);
+
+                        for (var r = 0; r < rings.length; r++) {
+                            var ring = rings[r];
+                            if (!ring || ring.length < 3) continue;
+
+                            // 1. Point in polygon check
+                            if (isPointInRing(sLng, sLat, ring)) {
+                                zonalMax = val;
+                                break;
+                            }
+
+                            // 2. Buffer distance to segment edges
+                            var hit = false;
+                            for (var j = 0; j < ring.length; j++) {
+                                var p1 = ring[j];
+                                var p2 = ring[(j + 1) % ring.length];
+                                var dx = p2[0] - p1[0];
+                                var dy = p2[1] - p1[1];
+                                var l2 = dx * dx + dy * dy;
+                                var distSq;
+                                if (l2 === 0) {
+                                    distSq = (sLng - p1[0]) * (sLng - p1[0]) + (sLat - p1[1]) * (sLat - p1[1]);
+                                } else {
+                                    var t = Math.max(0.0, Math.min(1.0, ((sLng - p1[0]) * dx + (sLat - p1[1]) * dy) / l2));
+                                    var projX = p1[0] + t * dx;
+                                    var projY = p1[1] + t * dy;
+                                    distSq = (sLng - projX) * (sLng - projX) + (sLat - projY) * (sLat - projY);
+                                }
+                                if (distSq <= rSq) {
+                                    hit = true;
+                                    break;
+                                }
+                            }
+
+                            if (hit) {
+                                zonalMax = val;
+                                break;
+                            }
+                        }
                     }
+
+                    return zonalMax;
                 }
 
                 /**
@@ -5689,7 +6138,7 @@
 
                     var data = geoJsonCache[frameUrl];
                     if (!data) {
-                        var cleanKey = Object.keys(geoJsonCache).find(k => k.endsWith(frameUrl) || frameUrl.endsWith(k));
+                        var cleanKey = Object.keys(geoJsonCache).find(function (k) { return k.endsWith(frameUrl) || frameUrl.endsWith(k); });
                         if (cleanKey) data = geoJsonCache[cleanKey];
                     }
 
@@ -5699,17 +6148,32 @@
                         var f = data.features[i];
                         if (!f.geometry || !f.geometry.coordinates) continue;
 
-                        // Bounding-box pre-filtering on feature
-                        var bbox = f.bbox;
-                        if (bbox && bbox.length === 4) {
-                            if (lng < bbox[0] || lng > bbox[2] || lat < bbox[1] || lat > bbox[3]) {
-                                continue; // Skip non-matching feature instantly
+                        if (!f._bbox) {
+                            var fMinX = Infinity, fMaxX = -Infinity, fMinY = Infinity, fMaxY = -Infinity;
+                            var allRings = (f.geometry.type === 'Polygon') ? [f.geometry.coordinates[0]] :
+                                (f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates.map(function (c) { return c[0]; }) : []);
+                            for (var ar = 0; ar < allRings.length; ar++) {
+                                var rk = allRings[ar];
+                                if (!rk) continue;
+                                for (var vk = 0; vk < rk.length; vk++) {
+                                    var vx = rk[vk][0], vy = rk[vk][1];
+                                    if (vx < fMinX) fMinX = vx;
+                                    if (vx > fMaxX) fMaxX = vx;
+                                    if (vy < fMinY) fMinY = vy;
+                                    if (vy > fMaxY) fMaxY = vy;
+                                }
                             }
+                            f._bbox = [fMinX, fMinY, fMaxX, fMaxY];
+                        }
+
+                        var bbox = f._bbox;
+                        if (lng < bbox[0] || lng > bbox[2] || lat < bbox[1] || lat > bbox[3]) {
+                            continue;
                         }
 
                         // Point-in-polygon verification
                         var rings = (f.geometry.type === 'Polygon') ? [f.geometry.coordinates[0]] :
-                            (f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates.map(c => c[0]) : []);
+                            (f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates.map(function (c) { return c[0]; }) : []);
 
                         for (var r = 0; r < rings.length; r++) {
                             if (rings[r] && isPointInRing(lng, lat, rings[r])) {
@@ -5730,13 +6194,13 @@
                     }
 
                     var seq = [];
-                    var praHourlyFrames = (varsData && varsData["pra"] && varsData["pra"]["hourly"]) 
-                        ? varsData["pra"]["hourly"] 
+                    var praHourlyFrames = (varsData && varsData["pra"] && varsData["pra"]["1h"]) 
+                        ? varsData["pra"]["1h"] 
                         : ((varsData && varsData["pra"]) ? varsData["pra"][accumMode] : []);
 
                     var loadedCount = 0;
                     praHourlyFrames.forEach(function (frame) {
-                        if (frame && frame.url && (geoJsonCache[frame.url] || Object.keys(geoJsonCache).some(k => k.endsWith(frame.url)))) {
+                        if (frame && frame.url && (geoJsonCache[frame.url] || Object.keys(geoJsonCache).some(function (k) { return k.endsWith(frame.url); }))) {
                             loadedCount++;
                         }
                         // Uses fast O(1) lookup
@@ -5809,204 +6273,255 @@
                     }
                 }
 
-                function syncAWSStationsRain(stepIdx) {
+                function syncAWSStationsRain(stepIdx, praDataOverride) {
                     if (!awsStationsList || awsStationsList.length === 0) return;
 
-                    // 1. Skip heavy Turf calculations while playing to keep animation smooth at 60 FPS
-                    if (isPlaying) {
-                        hideSyncStatus();
-                        return;
-                    }
+                    var curPraData = praDataOverride || getActivePraGeoJson(stepIdx);
 
-                    // 2. Show the floating "Syncing data..." toast indicator
-                    showSyncStatus("Syncing AWS station data...");
+                    // Convert 24h stepIdx to corresponding hourly index (Step 0 = Hour 23 / Day 1 mark)
+                    var hourlyStepIdx = (accumMode === "24h") 
+                        ? Math.max(0, (stepIdx + 1) * 24 - 1) 
+                        : stepIdx;
 
-                    // 3. Defer calculations by 15ms so the browser has time to render the sync toast first
-                    setTimeout(function () {
+                    // Evaluate active rainfall & hazard alerts for each AWS site
+                    awsStationsList.forEach(function (st) {
+                        if (st.lat !== null && st.lng !== null) {
+                            
+                            // Extract peak forecast rain inside station's buffer zone from current frame
+                            var instantRain = getZonalMaxForecastForStation(st, curPraData);
+                            st.currentRain = instantRain;
 
-                        // Convert 24h stepIdx to corresponding hourly index (Step 0 = Hour 23 / Day 1 mark)
-                        var hourlyStepIdx = (accumMode === "24h") 
-                            ? Math.max(0, (stepIdx + 1) * 24 - 1) 
-                            : stepIdx;
+                            // 7-AP antecedent precipitation baseline
+                            var p7 = (st.past7DaysRain !== undefined && st.past7DaysRain !== null)
+                                ? parseFloat(st.past7DaysRain)
+                                : ((typeof getMockPastRainForStation === 'function') ? getMockPastRainForStation(st.regionId) : 0.0);
 
-                        // Evaluate API soil moisture & hazard alerts for each AWS site
-                        awsStationsList.forEach(function (st) {
-                            if (st.lat !== null && st.lng !== null) {
-                                
-                                // Extract peak forecast rain inside station's buffer zone from current frame
-                                var instantRain = getZonalMaxForecastForStation(st, currentGeoJsonLayer);
-                                st.currentRain = instantRain;
+                            // Fetch hourly forecast sequence at station
+                            var hourlySeq = getStationHourlyForecastSeq(st);
 
-                                // 7-AP antecedent precipitation baseline
-                                var p7 = (st.past7DaysRain !== undefined && st.past7DaysRain !== null)
-                                    ? parseFloat(st.past7DaysRain)
-                                    : ((typeof getMockPastRainForStation === 'function') ? getMockPastRainForStation(st.regionId) : 25.0);
+                            // Calculate API decayed up to the target hourly step
+                            var targetStep = Math.min(hourlyStepIdx, Math.max(0, hourlySeq.length - 1));
+                            var apiRes = calculateAPI(p7, hourlySeq, targetStep);
 
-                                // Fetch hourly forecast sequence at station
-                                var hourlySeq = getStationHourlyForecastSeq(st);
+                            st.apiValue = apiRes.currentAPI;
+                            st.activeDay = apiRes.activeDay;
+                            st.confidence = apiRes.confidenceTier;
+                            st.past7DaysRain = p7;
 
-                                // Calculate API decayed up to the target hourly step
-                                var targetStep = Math.min(hourlyStepIdx, Math.max(0, hourlySeq.length - 1));
-                                var apiRes = calculateAPI(p7, hourlySeq, targetStep);
+                            // Warning evaluated on active forecast rainfall (or soil API if higher)
+                            var effectiveVal = st.currentRain;
+                            if (st.apiValue && st.apiValue > effectiveVal) {
+                                effectiveVal = st.apiValue;
+                            }
 
-                                st.apiValue = apiRes.currentAPI;
-                                st.activeDay = apiRes.activeDay;
-                                st.confidence = apiRes.confidenceTier;
-                                st.past7DaysRain = p7;
+                            // Calculate alert warning level based on regional rainfall thresholds
+                            var warn = getWarningForValue(st.regionId, effectiveVal);
+                            warn.maxVal = effectiveVal;
+                            st.alertWarn = warn;
 
-                                // Calculate alert warning level based on regional API threshold
-                                var warn = getWarningForValue(st.regionId, st.apiValue);
-                                warn.maxVal = st.apiValue;
-                                st.alertWarn = warn;
-
-                                // Update Leaflet marker and tooltips
-                                if (st.marker) {
-                                    updateStationMarkerStyle(st);
-                                    if (typeof st.marker.setTooltipContent === 'function') {
-                                        st.marker.setTooltipContent(getStationTooltipHtml(st));
-                                    }
+                            // Update Leaflet marker and tooltips
+                            if (st.marker) {
+                                updateStationMarkerStyle(st);
+                                if (typeof st.marker.setTooltipContent === 'function') {
+                                    st.marker.setTooltipContent(getStationTooltipHtml(st));
                                 }
+                            }
 
-                                // Update 20km circular buffer polygon
-                                if (st.hazardLayer) {
-                                    st.hazardLayer.setStyle(getHazardZoneStyle(st));
-                                }
+                            // Update hazard zone style
+                            if (st.hazardLayer) {
+                                st.hazardLayer.setStyle(getHazardZoneStyle(st));
+                            }
+                        }
+                    });
+
+                    // Synchronize Regional Risk Monitor Cards
+                    var priority = { 'NORMAL': 0, 'YELLOW': 1, 'ORANGE': 2, 'RED': 3 };
+                    var highestAlertLevel = 'NORMAL';
+
+                    for (var ridKey in REGIONAL_THRESHOLDS) {
+                        var rStations = awsStationsList.filter(function (s) {
+                            return s.regionId === ridKey && s.lat !== null;
+                        });
+
+                        var maxRainInRegion = 0.0;
+                        var maxApiInRegion = 0.0;
+                        var highestStationLevel = 'NORMAL';
+                        var highestStationWarn = null;
+
+                        rStations.forEach(function (st) {
+                            var rVal = (st.currentRain !== undefined) ? st.currentRain : 0.0;
+                            var aVal = (st.apiValue !== undefined) ? st.apiValue : 0.0;
+                            if (rVal > maxRainInRegion) maxRainInRegion = rVal;
+                            if (aVal > maxApiInRegion) maxApiInRegion = aVal;
+
+                            var val = (st.currentRain !== undefined) ? st.currentRain : (st.apiValue || 0.0);
+                            var w = st.alertWarn || getWarningForValue(ridKey, val);
+                            if (priority[w.level] > priority[highestStationLevel]) {
+                                highestStationLevel = w.level;
+                                highestStationWarn = w;
                             }
                         });
 
-                        // Synchronize Regional Risk Monitor Cards
-                        var priority = { 'NORMAL': 0, 'YELLOW': 1, 'ORANGE': 2, 'RED': 3 };
-                        var highestAlertLevel = 'NORMAL';
+                        if (!highestStationWarn) {
+                            highestStationWarn = getWarningForValue(ridKey, maxRainInRegion);
+                        }
+                        highestStationWarn = Object.assign({}, highestStationWarn, { maxVal: maxRainInRegion });
+                        regionalActiveWarnings[ridKey] = highestStationWarn;
 
-                        for (var ridKey in REGIONAL_THRESHOLDS) {
-                            var rStations = awsStationsList.filter(function (s) {
-                                return s.regionId === ridKey && s.lat !== null;
-                            });
-
-                            var maxApiInRegion = 0.0;
-                            var highestStationLevel = 'NORMAL';
-                            var highestStationWarn = null;
-
-                            rStations.forEach(function (st) {
-                                var val = st.apiValue || 0.0;
-                                if (val > maxApiInRegion) maxApiInRegion = val;
-                                var w = st.alertWarn || getWarningForValue(ridKey, val);
-                                if (priority[w.level] > priority[highestStationLevel]) {
-                                    highestStationLevel = w.level;
-                                    highestStationWarn = w;
-                                }
-                            });
-
-                            if (!highestStationWarn) {
-                                highestStationWarn = getWarningForValue(ridKey, maxApiInRegion);
-                            }
-                            highestStationWarn = Object.assign({}, highestStationWarn, { maxVal: maxApiInRegion });
-                            regionalActiveWarnings[ridKey] = highestStationWarn;
-
-                            if (priority[highestStationWarn.level] > priority[highestAlertLevel]) {
-                                highestAlertLevel = highestStationWarn.level;
-                            }
-
-                            // Update UI Cards/Chips
-                            var rainEl = document.getElementById('rain-' + ridKey);
-                            var badgeEl = document.getElementById('badge-' + ridKey);
-                            var chipEl = document.getElementById('chip-' + ridKey);
-
-                            if (rainEl) rainEl.innerText = `${maxApiInRegion.toFixed(1)} mm API`;
-                            if (badgeEl) {
-                                badgeEl.className = 'landslide-badge ' + highestStationWarn.badgeClass;
-                                badgeEl.innerText = highestStationWarn.level === 'NORMAL' ? 'NORM' : highestStationWarn.level;
-                            }
-                            if (chipEl) {
-                                chipEl.style.borderColor = highestStationWarn.border || '#334155';
-                                chipEl.style.background = highestStationWarn.level === 'NORMAL' ? 'rgba(30, 41, 59, 0.7)' :
-                                    (highestStationWarn.level === 'RED' ? 'rgba(239, 68, 68, 0.22)' :
-                                    (highestStationWarn.level === 'ORANGE' ? 'rgba(249, 115, 22, 0.20)' : 'rgba(234, 179, 8, 0.16)'));
-                            }
+                        if (priority[highestStationWarn.level] > priority[highestAlertLevel]) {
+                            highestAlertLevel = highestStationWarn.level;
                         }
 
-                        // Update Summary Header Badge
-                        var summaryBadge = document.getElementById('landslide-summary-badge');
-                        if (summaryBadge) {
-                            if (highestAlertLevel === 'RED') {
-                                summaryBadge.className = 'landslide-badge badge-red';
-                                summaryBadge.innerText = '🔴 RED ALERT';
-                            } else if (highestAlertLevel === 'ORANGE') {
-                                summaryBadge.className = 'landslide-badge badge-orange';
-                                summaryBadge.innerText = '🟠 ORANGE';
-                            } else if (highestAlertLevel === 'YELLOW') {
-                                summaryBadge.className = 'landslide-badge badge-yellow';
-                                summaryBadge.innerText = '🟡 YELLOW';
-                            } else {
-                                summaryBadge.className = 'landslide-badge badge-normal';
-                                summaryBadge.innerText = '🟢 NORMAL';
+                        // Update UI Cards/Chips
+                        var rainEl = document.getElementById('rain-' + ridKey);
+                        var apiEl = document.getElementById('api-' + ridKey);
+                        var badgeEl = document.getElementById('badge-' + ridKey);
+                        var chipEl = document.getElementById('chip-' + ridKey);
+
+                        if (rainEl) rainEl.innerText = `Rain: ${maxRainInRegion.toFixed(1)} mm`;
+                        if (apiEl) apiEl.innerText = `API: ${maxApiInRegion.toFixed(1)} mm`;
+                        if (badgeEl) {
+                            badgeEl.className = 'landslide-badge ' + highestStationWarn.badgeClass;
+                            badgeEl.innerText = highestStationWarn.level === 'NORMAL' ? 'NORM' : highestStationWarn.level;
+                        }
+                        if (chipEl) {
+                            chipEl.style.borderColor = highestStationWarn.border || '#334155';
+                            chipEl.style.background = highestStationWarn.level === 'NORMAL' ? 'rgba(30, 41, 59, 0.7)' :
+                                (highestStationWarn.level === 'RED' ? 'rgba(239, 68, 68, 0.22)' :
+                                (highestStationWarn.level === 'ORANGE' ? 'rgba(249, 115, 22, 0.20)' : 'rgba(234, 179, 8, 0.16)'));
+                        }
+                    }
+
+                    // Synchronize Province active warnings
+                    provinceActiveWarnings = {};
+                    awsStationsList.forEach(function (st) {
+                        if (st.prov) {
+                            var val = (st.currentRain !== undefined) ? st.currentRain : (st.apiValue || 0.0);
+                            var curProvWarn = provinceActiveWarnings[st.prov];
+                            var curMax = curProvWarn ? curProvWarn.maxVal : 0.0;
+                            var pWarn = st.alertWarn || getWarningForValue(st.regionId, val);
+                            if (!curProvWarn || priority[pWarn.level] > priority[curProvWarn.level] || val > curMax) {
+                                provinceActiveWarnings[st.prov] = Object.assign({}, pWarn, { maxVal: Math.max(val, curMax) });
                             }
                         }
+                    });
 
-                        // Update Regional Layer Polygons
-                        if (regionalThresholdsLayer) {
-                            regionalThresholdsLayer.setStyle(getRegionalFeatureStyle);
+                    // Update Summary Header Badge
+                    var summaryBadge = document.getElementById('landslide-summary-badge');
+                    if (summaryBadge) {
+                        if (highestAlertLevel === 'RED') {
+                            summaryBadge.className = 'landslide-badge badge-red';
+                            summaryBadge.innerText = '🔴 RED ALERT';
+                        } else if (highestAlertLevel === 'ORANGE') {
+                            summaryBadge.className = 'landslide-badge badge-orange';
+                            summaryBadge.innerText = '🟠 ORANGE';
+                        } else if (highestAlertLevel === 'YELLOW') {
+                            summaryBadge.className = 'landslide-badge badge-yellow';
+                            summaryBadge.innerText = '🟡 YELLOW';
+                        } else {
+                            summaryBadge.className = 'landslide-badge badge-normal';
+                            summaryBadge.innerText = '🟢 NORMAL';
                         }
+                    }
 
-                        // 4. Hide the indicator once processing completes
-                        hideSyncStatus();
-
-                    }, 15);
+                    // Update Regional Layer Polygons
+                    if (regionalThresholdsLayer) {
+                        regionalThresholdsLayer.setStyle(getRegionalFeatureStyle);
+                    }
                 }
                 
-                const awsSyncPromises = [
+                // =========================================================================
+                // Lazy-Loaded AWS Station Sites & Hazard Zones (Non-blocking staged queue)
+                // =========================================================================
+                var awsStationConfigs = [
                     // ==================== CAR ====================
-                    initSynchronizedAWSLayer('MANKAYAN', 'https://api.maptiler.com/data/019f44a0-c1f3-7d6c-a4cd-bf01ec8769e3/features.json?key=HnKlTumvQGjlZFqKA35V', 'LIGTAS MANKAYAN AWS', 'benguet'),
-                    initSynchronizedAWSLayer('BUGUIAS', 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_Buguias%20AWS_RIL_HL.geojson', 'LIGTAS BUGUIAS AWS', 'benguet'),
-                    initSynchronizedAWSLayer('BOKOD', 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_Bokod%20AWS_RIL_HL.geojson', 'LIGTAS BOKOD AWS', 'benguet'),
-                    initSynchronizedAWSLayer('COROZ', 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_Coroz%20AWS_RIL_HL.geojson', 'LIGTAS COROZ AWS', 'benguet'),
-                    initSynchronizedAWSLayer('ITOGON', 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_Itogon%20AWS_RIL_HL.geojson', 'LIGTAS ITOGON AWS', 'benguet'),
-                    initSynchronizedAWSLayer('LIGTAS-AGAD PASIL AWS', 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/LIGTAS_Pasil%20AWS_RIL_HL.geojson', 'LIGTAS-AGAD PASIL AWS', 'benguet'),
-                    initSynchronizedAWSLayer('LIGTAS-AGAD Licuan-Baay AWS', 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/LIGTAS_Licuan%20Baay%20AWS_RIL_HL.geojson', 'LIGTAS-AGAD Licuan-Baay AWS', 'benguet'),
-                    initSynchronizedAWSLayer('LIGTAS-AGAD Calanasan AWS', 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/LIGTAS_Calanasan%20AWS_RIL_HL.geojson', 'LIGTAS-AGAD Calanasan AWS', 'benguet'),
-                    initSynchronizedAWSLayer('LIGTAS-AGAD Barlig AWS', 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/LIGTAS_Barlig%20AWS_RIL_HL.geojson', 'LIGTAS-AGAD Barlig AWS', 'benguet'),
+                    { id: 'MANKAYAN', url: 'https://api.maptiler.com/data/019f44a0-c1f3-7d6c-a4cd-bf01ec8769e3/features.json?key=HnKlTumvQGjlZFqKA35V', name: 'LIGTAS MANKAYAN AWS', region: 'benguet' },
+                    { id: 'BUGUIAS', url: 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_Buguias%20AWS_RIL_HL.geojson', name: 'LIGTAS BUGUIAS AWS', region: 'benguet' },
+                    { id: 'BOKOD', url: 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_Bokod%20AWS_RIL_HL.geojson', name: 'LIGTAS BOKOD AWS', region: 'benguet' },
+                    { id: 'COROZ', url: 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_Coroz%20AWS_RIL_HL.geojson', name: 'LIGTAS COROZ AWS', region: 'benguet' },
+                    { id: 'ITOGON', url: 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_Itogon%20AWS_RIL_HL.geojson', name: 'LIGTAS ITOGON AWS', region: 'benguet' },
+                    { id: 'LIGTAS-AGAD PASIL AWS', url: 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/LIGTAS_Pasil%20AWS_RIL_HL.geojson', name: 'LIGTAS-AGAD PASIL AWS', region: 'benguet' },
+                    { id: 'LIGTAS-AGAD Licuan-Baay AWS', url: 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/LIGTAS_Licuan%20Baay%20AWS_RIL_HL.geojson', name: 'LIGTAS-AGAD Licuan-Baay AWS', region: 'benguet' },
+                    { id: 'LIGTAS-AGAD Calanasan AWS', url: 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/LIGTAS_Calanasan%20AWS_RIL_HL.geojson', name: 'LIGTAS-AGAD Calanasan AWS', region: 'benguet' },
+                    { id: 'LIGTAS-AGAD Barlig AWS', url: 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/LIGTAS_Barlig%20AWS_RIL_HL.geojson', name: 'LIGTAS-AGAD Barlig AWS', region: 'benguet' },
 
                     // ==================== CALABARZON ====================
-                    initSynchronizedAWSLayer('LANDGRANT', 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_Landgrant%20AWS_RIL_HL.geojson', 'LIGTAS LANDGRANT AWS', 'calabarzon'),
-                    initSynchronizedAWSLayer('NAC', 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_NAC%20AWS_RIL_HL.geojson', 'LIGTAS NAC 2026', 'calabarzon'),
-                    initSynchronizedAWSLayer('PGPC', 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_PGPC%20AWS_RIL_HL.geojson', 'VOTE PGPC AWS', 'calabarzon'),
-                    initSynchronizedAWSLayer('CATANAUAN', 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_Catanauan%20AWS_RIL_HL.geojson', 'LIGTAS CATANAUAN AWS', 'calabarzon'),
-                    initSynchronizedAWSLayer('Los Banos, Laguna AWS', 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/UPLB%20Laguna%20AWS_RIL_HL.geojson', 'PAGASA-UP Los Banos, Laguna AWS', 'calabarzon'),
-                    initSynchronizedAWSLayer('Polillio-Quezon AWS', 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Polilo%20Quezon%20AWS_RIL_HL.geojson', 'PAGASA-Polillio-Quezon AWS', 'calabarzon'),
-                    initSynchronizedAWSLayer('Mulanay, Quezon AWS', 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Mulanay%20Quezon%20AWS_RIL_HL.geojson', 'PAGASA-Mulanay, Quezon AWS', 'calabarzon'),
-                    initSynchronizedAWSLayer('Ambulong Tanauan Batangas AWS', 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Ambulong%20Tanauan%20Batangas%20AWS_RIL_HL.geojson', 'PAGASA-Ambulong Tanauan Batangas AWS', 'calabarzon'),
-                    initSynchronizedAWSLayer('Lipa, Batangas AWS', 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Lipa%20Batangas%20AWS_RIL_HL.geojson', 'PAGASA-Lipa, Batangas AWS', 'calabarzon'),
-                    initSynchronizedAWSLayer('Tayabas-Quezon AWS', 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Tayabas%20Quezon%20AWS_RIL_HL.geojson', 'PAGASA-Tayabas-Quezon AWS', 'calabarzon'),
-                    initSynchronizedAWSLayer('Tanay, Rizal AWS', 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Tanay%20Rizal%20AWS_RIL_HL.geojson', 'PAGASA-Tanay, Rizal AWS', 'calabarzon'),
+                    { id: 'LANDGRANT', url: 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_Landgrant%20AWS_RIL_HL.geojson', name: 'LIGTAS LANDGRANT AWS', region: 'calabarzon' },
+                    { id: 'NAC', url: 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_NAC%20AWS_RIL_HL.geojson', name: 'LIGTAS NAC 2026', region: 'calabarzon' },
+                    { id: 'PGPC', url: 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_PGPC%20AWS_RIL_HL.geojson', name: 'VOTE PGPC AWS', region: 'calabarzon' },
+                    { id: 'CATANAUAN', url: 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_Catanauan%20AWS_RIL_HL.geojson', name: 'LIGTAS CATANAUAN AWS', region: 'calabarzon' },
+                    { id: 'Los Banos, Laguna AWS', url: 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/UPLB%20Laguna%20AWS_RIL_HL.geojson', name: 'PAGASA-UP Los Banos, Laguna AWS', region: 'calabarzon' },
+                    { id: 'Polillio-Quezon AWS', url: 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Polilo%20Quezon%20AWS_RIL_HL.geojson', name: 'PAGASA-Polillio-Quezon AWS', region: 'calabarzon' },
+                    { id: 'Mulanay, Quezon AWS', url: 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Mulanay%20Quezon%20AWS_RIL_HL.geojson', name: 'PAGASA-Mulanay, Quezon AWS', region: 'calabarzon' },
+                    { id: 'Ambulong Tanauan Batangas AWS', url: 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Ambulong%20Tanauan%20Batangas%20AWS_RIL_HL.geojson', name: 'PAGASA-Ambulong Tanauan Batangas AWS', region: 'calabarzon' },
+                    { id: 'Lipa, Batangas AWS', url: 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Lipa%20Batangas%20AWS_RIL_HL.geojson', name: 'PAGASA-Lipa, Batangas AWS', region: 'calabarzon' },
+                    { id: 'Tayabas-Quezon AWS', url: 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Tayabas%20Quezon%20AWS_RIL_HL.geojson', name: 'PAGASA-Tayabas-Quezon AWS', region: 'calabarzon' },
+                    { id: 'Tanay, Rizal AWS', url: 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Tanay%20Rizal%20AWS_RIL_HL.geojson', name: 'PAGASA-Tanay, Rizal AWS', region: 'calabarzon' },
 
                     // ==================== BICOL ====================
-                    initSynchronizedAWSLayer('Pili Camarines Sur AWS', 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Pili%20Camarines%20Sur%20AWS_RIL_HL.geojson', 'PAGASA-Pili Camarines Sur AWS', 'bicol'),
-                    initSynchronizedAWSLayer('Legazpi AWS', 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Legazpi%20Albay%20AWS_RIL_HL.geojson', 'PAGASA-Legazpi AWS', 'bicol'),
-                    initSynchronizedAWSLayer('Sorsogon, Sorsogon AWS', 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Sorsogon%20Sorsogon%20AWS_RIL_HL.geojson', 'PAGASA-Sorsogon, Sorsogon AWS', 'bicol'),
-                    initSynchronizedAWSLayer('Virac, Catanduanes AWS', 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Virac%20Catanduanes%20AWS_RIL_HL.geojson', 'PAGASA-Virac, Catanduanes AWS', 'bicol'),
+                    { id: 'Pili Camarines Sur AWS', url: 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Pili%20Camarines%20Sur%20AWS_RIL_HL.geojson', name: 'PAGASA-Pili Camarines Sur AWS', region: 'bicol' },
+                    { id: 'Legazpi AWS', url: 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Legazpi%20Albay%20AWS_RIL_HL.geojson', name: 'PAGASA-Legazpi AWS', region: 'bicol' },
+                    { id: 'Sorsogon, Sorsogon AWS', url: 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Sorsogon%20Sorsogon%20AWS_RIL_HL.geojson', name: 'PAGASA-Sorsogon, Sorsogon AWS', region: 'bicol' },
+                    { id: 'Virac, Catanduanes AWS', url: 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Virac%20Catanduanes%20AWS_RIL_HL.geojson', name: 'PAGASA-Virac, Catanduanes AWS', region: 'bicol' },
 
                     // ==================== SAMAR ====================
-                    initSynchronizedAWSLayer('CATARMAN', 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_Catarman%20AWS_RIL_HL.geojson', 'LIGTAS UEP-CATARMAN AWS', 'samar'),
-                    initSynchronizedAWSLayer('Northern-Samar AWS', 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Catarman%20Northern%20Samar%20AWS_RIL_HL.geojson', 'PAGASA-Northern-Samar AWS', 'samar')
+                    { id: 'CATARMAN', url: 'https://raw.githubusercontent.com/Gabzrock/LIGTASkanaba/refs/heads/main/LIGTAS_Catarman%20AWS_RIL_HL.geojson', name: 'LIGTAS UEP-CATARMAN AWS', region: 'samar' },
+                    { id: 'Northern-Samar AWS', url: 'https://raw.githubusercontent.com/LIGTAS-AGAD/LIGTAS/refs/heads/main/Catarman%20Northern%20Samar%20AWS_RIL_HL.geojson', name: 'PAGASA-Northern-Samar AWS', region: 'samar' }
                 ];
 
                 awsMasterLayerGroup.addTo(mapObj);
 
-                Promise.all(awsSyncPromises).then(function (results) {
-                    var validCount = results.filter(Boolean).length;
-                    console.log(`Successfully initialized ${validCount} AWS station sites & hazard zones.`);
+                setTimeout(function () {
+                    if (window.layer_control_fedb6c49110a1e042cf1a8d3d7403851 && awsMasterLayerGroup) {
+                        try {
+                            window.layer_control_fedb6c49110a1e042cf1a8d3d7403851.addOverlay(awsMasterLayerGroup, "📍 AWS Sites & Landslide Alert (LIGTAS/PAGASA)");
+                        } catch (e) { }
+                    }
+                }, 500);
 
-                    setTimeout(function () {
-                        if (window.layer_control_fedb6c49110a1e042cf1a8d3d7403851 && awsMasterLayerGroup) {
-                            try {
-                                window.layer_control_fedb6c49110a1e042cf1a8d3d7403851.addOverlay(awsMasterLayerGroup, "📍 AWS Sites & Landslide Alert (LIGTAS/PAGASA)");
-                            } catch (e) { }
+                function lazyLoadAWSSites() {
+                    var BATCH_SIZE = 4;
+                    var cursor = 0;
+
+                    function loadNextBatch() {
+                        if (cursor >= awsStationConfigs.length) {
+                            console.log(`Lazy loading complete: ${awsStationsList.length} AWS station sites ready.`);
+                            var cIdx = parseInt(slider.value) || 0;
+                            syncAWSStationsRain(cIdx);
+                            return;
                         }
-                    }, 600);
 
-                    var currIdx = parseInt(slider.value) || 0;
-                    syncAWSStationsRain(currIdx);
-                });
+                        var batch = awsStationConfigs.slice(cursor, cursor + BATCH_SIZE);
+                        cursor += BATCH_SIZE;
+
+                        var batchPromises = batch.map(function (cfg) {
+                            return initSynchronizedAWSLayer(cfg.id, cfg.url, cfg.name, cfg.region);
+                        });
+
+                        Promise.all(batchPromises).then(function () {
+                            var cIdx = parseInt(slider.value) || 0;
+                            syncAWSStationsRain(cIdx);
+                            if ('requestIdleCallback' in window) {
+                                requestIdleCallback(loadNextBatch, { timeout: 800 });
+                            } else {
+                                setTimeout(loadNextBatch, 60);
+                            }
+                        }).catch(function () {
+                            if ('requestIdleCallback' in window) {
+                                requestIdleCallback(loadNextBatch, { timeout: 800 });
+                            } else {
+                                setTimeout(loadNextBatch, 60);
+                            }
+                        });
+                    }
+
+                    // Stagger start until initial weather frame is rendered
+                    if ('requestIdleCallback' in window) {
+                        requestIdleCallback(loadNextBatch, { timeout: 600 });
+                    } else {
+                        setTimeout(loadNextBatch, 250);
+                    }
+                }
 
                 mapObj.on('overlayadd', function (e) {
                     if (e.layer === awsMasterLayerGroup) {
@@ -6153,54 +6668,39 @@
                     }
 
                     var url = frame.url;
-                    if (geoJsonCache[url]) {
-                        geoJsonLayer.clearLayers();
-                        geoJsonLayer.addData(geoJsonCache[url]);
-                        if (currentVar === "pra") {
-                            evaluateRegionalThresholds(geoJsonCache[url]);
-                        }
-                    } else {
-                        fetch(url)
-                            .then(response => {
-                                if (!response.ok) {
-                                    throw new Error("HTTP error " + response.status);
+                    loadGeoJson(url)
+                        .then(function (data) {
+                            if (!data) return;
+                            buildStationGridIndices(data);
+                            invalidateStationCaches();
+                            geoJsonLayer.clearLayers();
+                            geoJsonLayer.addData(data);
+                            if (currentVar === "pra") {
+                                evaluateRegionalThresholds(data);
+                                if (window.awsStationsList && window.awsStationsList.length > 0) {
+                                    syncAWSStationsRain(index, data);
                                 }
-                                return response.json();
-                            })
-                            .then(data => {
-                                geoJsonCache[url] = data;
-                                buildStationGridIndices(data);
-                                invalidateStationCaches();
-                                geoJsonLayer.clearLayers();
-                                geoJsonLayer.addData(data);
-                                if (currentVar === "pra") {
-                                    evaluateRegionalThresholds(data);
-                                    if (window.awsStationsList && window.awsStationsList.length > 0) {
-                                        syncAWSStationsRain(index);
-                                    }
-                                }
-                            })
-                            .catch(err => console.warn("GeoJSON overlay step unavailable:", url));
-                    }
+                            }
+                            updateBufferUI();
+                        })
+                        .catch(function (err) {
+                            console.warn("GeoJSON overlay step unavailable:", url, err);
+                        });
 
                     if (currentVar !== "pra") {
                         var praFrames = varsData["pra"] ? varsData["pra"][accumMode] : null;
                         if (praFrames && praFrames[index]) {
                             var praUrl = praFrames[index].url;
-                            if (geoJsonCache[praUrl]) {
-                                evaluateRegionalThresholds(geoJsonCache[praUrl]);
-                                if (window.awsStationsList && window.awsStationsList.length > 0) {
-                                    syncAWSStationsRain(index);
-                                }
-                            } else {
-                                fetch(praUrl).then(r => r.json()).then(d => {
-                                    geoJsonCache[praUrl] = d;
-                                    evaluateRegionalThresholds(d);
-                                    if (window.awsStationsList && window.awsStationsList.length > 0) {
-                                        syncAWSStationsRain(index);
+                            loadGeoJson(praUrl)
+                                .then(function (d) {
+                                    if (d) {
+                                        evaluateRegionalThresholds(d);
+                                        if (window.awsStationsList && window.awsStationsList.length > 0) {
+                                            syncAWSStationsRain(index, d);
+                                        }
                                     }
-                                }).catch(() => { });
-                            }
+                                })
+                                .catch(function () { });
                         }
                     }
 
@@ -6218,47 +6718,126 @@
                     if (window.awsStationsList && window.awsStationsList.length > 0) {
                         syncAWSStationsRain(index);
                     }
+
+                    // Predictive background pre-downloading ahead of current slider frame
+                    triggerPredictivePreload(index);
                 }
 
                 syncTimelineLimits();
                 updateFrame(0);
+                updateBufferUI();
+                lazyLoadAWSSites();
 
+                var sliderInputRaf = null;
                 slider.addEventListener('input', function () {
-                    updateFrame(parseInt(this.value));
+                    var targetIdx = parseInt(this.value);
+                    if (sliderInputRaf) cancelAnimationFrame(sliderInputRaf);
+                    sliderInputRaf = requestAnimationFrame(function () {
+                        updateFrame(targetIdx);
+                    });
                 });
+
+                function getPlaybackInterval() {
+                    return Math.max(75, Math.round(BASE_PLAY_INTERVAL / playbackSpeed));
+                }
+
+                function startPlaybackTimer() {
+                    if (timerId) clearInterval(timerId);
+                    isPlaying = true;
+                    playBtn.innerText = "⏸ Pause";
+                    playBtn.style.background = "#dc2626";
+                    playBtn.style.boxShadow = "0 4px 10px rgba(220, 38, 38, 0.4)";
+
+                    timerId = setInterval(function () {
+                        var curr = parseInt(slider.value);
+                        var isLoop = document.getElementById('loop-checkbox') ? document.getElementById('loop-checkbox').checked : true;
+                        if (curr >= activeFrames.length - 1) {
+                            if (isLoop) {
+                                // Reset API cache and force station/regional metrics back to Step 0
+                                invalidateStationCaches();
+                                updateFrame(0);
+                                syncAWSStationsRain(0);
+                            } else {
+                                stopPlaybackTimer();
+                            }
+                        } else {
+                            updateFrame(curr + 1);
+                        }
+                    }, getPlaybackInterval());
+                }
+
+                function stopPlaybackTimer() {
+                    if (timerId) {
+                        clearInterval(timerId);
+                        timerId = null;
+                    }
+                    isPlaying = false;
+                    playBtn.innerText = "▶ Play";
+                    playBtn.style.background = "#16a34a";
+                    playBtn.style.boxShadow = "0 4px 10px rgba(220, 38, 38, 0.4)";
+                }
+
+                function updatePlaybackSpeed(newSpeed) {
+                    playbackSpeed = Math.max(0.5, Math.min(5.0, parseFloat(newSpeed) || 1.0));
+                    if (speedSlider) speedSlider.value = playbackSpeed;
+                    if (speedLabel) {
+                        var formatted = (playbackSpeed % 1 === 0) ? playbackSpeed.toFixed(0) : playbackSpeed.toFixed(1);
+                        speedLabel.innerText = `Speed: ${formatted}x`;
+                    }
+                    if (speedupBtn) {
+                        var formatted = (playbackSpeed % 1 === 0) ? playbackSpeed.toFixed(0) : playbackSpeed.toFixed(1);
+                        speedupBtn.innerText = playbackSpeed >= 2.0 ? `⏩ ${formatted}x` : '⏩ Speedup';
+                    }
+
+                    // Seamlessly restart playback timer at new interval if currently playing
+                    if (isPlaying) {
+                        startPlaybackTimer();
+                    }
+                }
 
                 playBtn.addEventListener('click', function () {
                     if (isPlaying) {
-                        clearInterval(timerId);
-                        isPlaying = false;
-                        playBtn.innerText = "▶ Play";
-                        playBtn.style.background = "#16a34a";
-                        playBtn.style.boxShadow = "0 4px 10px rgba(22, 163, 74, 0.4)";
+                        stopPlaybackTimer();
                     } else {
-                        isPlaying = true;
-                        playBtn.innerText = "⏸ Pause";
-                        playBtn.style.background = "#dc2626";
-                        playBtn.style.boxShadow = "0 4px 10px rgba(220, 38, 38, 0.4)";
-                        timerId = setInterval(function () {
-                            var curr = parseInt(slider.value);
-                            var isLoop = document.getElementById('loop-checkbox') ? document.getElementById('loop-checkbox').checked : true;
-                            if (curr >= activeFrames.length - 1) {
-                                if (isLoop) {
-                                    // Reset API cache and force station/regional metrics back to Step 0
-                                    invalidateStationCaches();
-                                    updateFrame(0);
-                                    syncAWSStationsRain(0);
-                                } else {
-                                    clearInterval(timerId);
-                                    isPlaying = false;
-                                    playBtn.innerText = "▶ Play";
-                                    playBtn.style.background = "#16a34a";
-                                    playBtn.style.boxShadow = "0 4px 10px rgba(22, 163, 74, 0.4)";
-                                }
-                            } else {
-                                updateFrame(curr + 1);
-                            }
-                        }, 600);
+                        startPlaybackTimer();
+                    }
+                });
+
+                if (speedSlider) {
+                    speedSlider.addEventListener('input', function () {
+                        updatePlaybackSpeed(this.value);
+                    });
+                }
+
+                if (speedupBtn) {
+                    speedupBtn.addEventListener('click', function (e) {
+                        e.preventDefault();
+                        // Cycle through speed multipliers: 1x -> 2x -> 3x -> 4x -> 1x
+                        var speeds = [1.0, 2.0, 3.0, 4.0];
+                        var nextSpeed = 1.0;
+                        if (playbackSpeed < 1.8) nextSpeed = 2.0;
+                        else if (playbackSpeed < 2.8) nextSpeed = 3.0;
+                        else if (playbackSpeed < 3.8) nextSpeed = 4.0;
+                        else nextSpeed = 1.0;
+                        updatePlaybackSpeed(nextSpeed);
+                    });
+                }
+
+                // Keyboard controls for convenient speedup & playback
+                window.addEventListener('keydown', function (e) {
+                    var tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+                    if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+                    if (e.code === 'Space') {
+                        e.preventDefault();
+                        if (isPlaying) stopPlaybackTimer();
+                        else startPlaybackTimer();
+                    } else if (e.key === ']' || e.key === '+' || e.key === '=') {
+                        e.preventDefault();
+                        updatePlaybackSpeed(Math.min(4.0, playbackSpeed + 0.5));
+                    } else if (e.key === '[' || e.key === '-' || e.key === '_') {
+                        e.preventDefault();
+                        updatePlaybackSpeed(Math.max(0.5, playbackSpeed - 0.5));
                     }
                 });
 
@@ -6380,6 +6959,14 @@
                             color: "#38bdf8",
                             bg: "rgba(56, 189, 248, 0.25)"
                         };
+                    } else if (varKey === "api") {
+                        return {
+                            name: "Soil Moisture (API)",
+                            unit: "mm",
+                            icon: "🌱",
+                            color: "#facc15",
+                            bg: "rgba(250, 204, 21, 0.25)"
+                        };
                     } else if (varKey === "vort") {
                         return {
                             name: "Wind Vorticity",
@@ -6458,6 +7045,12 @@
                         if (val >= 5.0) return `<span style="background:rgba(34,197,94,0.25); color:#22c55e; border:1px solid #22c55e; padding:1px 6px; border-radius:4px; font-weight:bold;">🟢 Light-Mod</span>`;
                         if (val > 0.0) return `<span style="background:rgba(56,189,248,0.25); color:#38bdf8; border:1px solid #38bdf8; padding:1px 6px; border-radius:4px; font-weight:bold;">🔵 Light Rain</span>`;
                         return `<span style="background:rgba(148,163,184,0.15); color:#94a3b8; border:1px solid #475569; padding:1px 6px; border-radius:4px;">No Rain</span>`;
+                    } else if (varKey === "api") {
+                        if (val >= 48.0) return `<span style="background:rgba(239,68,68,0.25); color:#ef4444; border:1px solid #ef4444; padding:1px 6px; border-radius:4px; font-weight:bold;">🔴 Severe Saturation</span>`;
+                        if (val >= 32.0) return `<span style="background:rgba(249,115,22,0.25); color:#f97316; border:1px solid #f97316; padding:1px 6px; border-radius:4px; font-weight:bold;">🟠 High Saturation</span>`;
+                        if (val >= 14.0) return `<span style="background:rgba(234,179,8,0.25); color:#eab308; border:1px solid #eab308; padding:1px 6px; border-radius:4px; font-weight:bold;">🟡 Moderate Wetness</span>`;
+                        if (val > 0.0) return `<span style="background:rgba(34,197,94,0.25); color:#22c55e; border:1px solid #22c55e; padding:1px 6px; border-radius:4px; font-weight:bold;">🟢 Moist Soil</span>`;
+                        return `<span style="background:rgba(148,163,184,0.15); color:#94a3b8; border:1px solid #475569; padding:1px 6px; border-radius:4px;">Dry Soil</span>`;
                     } else if (varKey === "vort") {
                         if (val >= 20.0) return `<span style="background:rgba(239,68,68,0.25); color:#ef4444; border:1px solid #ef4444; padding:1px 6px; border-radius:4px; font-weight:bold;">🔴 Strong Cyclonic</span>`;
                         if (val >= 10.0) return `<span style="background:rgba(249,115,22,0.25); color:#f97316; border:1px solid #f97316; padding:1px 6px; border-radius:4px; font-weight:bold;">🟠 Cyclonic</span>`;
@@ -6471,7 +7064,177 @@
                     }
                 }
 
+                function findStationNearPoint(lat, lng, maxDistKm) {
+                    if (!awsStationsList || awsStationsList.length === 0) return null;
+                    var maxD = maxDistKm || 25.0;
+                    var bestSt = null;
+                    var bestDist = Infinity;
+                    for (var i = 0; i < awsStationsList.length; i++) {
+                        var st = awsStationsList[i];
+                        if (st.lat !== null && st.lng !== null) {
+                            var dLat = (st.lat - lat) * 111.0;
+                            var dLng = (st.lng - lng) * 111.0 * Math.cos(lat * Math.PI / 180.0);
+                            var dist = Math.sqrt(dLat * dLat + dLng * dLng);
+                            if (dist < maxD && dist < bestDist) {
+                                bestDist = dist;
+                                bestSt = st;
+                            }
+                        }
+                    }
+                    return bestSt;
+                }
+
+                function generateSoilApiMeteogramData(lat, lng, mode) {
+                    var fLat = parseFloat(lat);
+                    var fLng = parseFloat(lng);
+                    var st = findStationNearPoint(fLat, fLng, 25.0);
+                    var regionInfo = findRegionForPoint(fLat, fLng) || (st ? { rid: st.regionId, regionName: st.regionName } : null);
+                    var rid = (regionInfo && regionInfo.rid) ? regionInfo.rid : (st ? st.regionId : 'benguet');
+                    var thresh = REGIONAL_THRESHOLDS[rid] || REGIONAL_THRESHOLDS['benguet'];
+
+                    // Past 7-day rainfall baseline from AWS station telemetry
+                    var p7 = (st && st.past7DaysRain !== undefined && st.past7DaysRain > 0)
+                        ? parseFloat(st.past7DaysRain)
+                        : (typeof getMockPastRainForStation === 'function' ? getMockPastRainForStation(rid) : 0.0);
+                    if (p7 <= 0) {
+                        p7 = (rid === 'benguet' ? 28.0 : (rid === 'calabarzon' ? 32.0 : (rid === 'bicol' ? 45.0 : 35.0)));
+                    }
+
+                    var labels = [];
+                    var apiValues = [];
+                    var rainValues = [];
+                    var isPast = [];
+                    var k_hourly = Math.pow(0.80, 1.0 / 24.0); // ~0.99074
+                    var curApi = 0.0;
+                    var pastCount = 0;
+                    var nowIdx = 0;
+
+                    if (mode === "24h") {
+                        // Past 7 days telemetry buildup (Day -7 to Day -1)
+                        var weights = [0.06, 0.08, 0.11, 0.14, 0.18, 0.21, 0.22];
+                        for (var d = 0; d < 7; d++) {
+                            var dayIdx = d - 7;
+                            var pastR = parseFloat((p7 * weights[d]).toFixed(1));
+                            curApi = curApi * 0.80 + pastR;
+                            labels.push(`Day ${dayIdx} (${dayIdx * 24}h)`);
+                            apiValues.push(parseFloat(curApi.toFixed(1)));
+                            rainValues.push(pastR);
+                            isPast.push(true);
+                        }
+
+                        // Day 0 (Model Init / Now)
+                        labels.push("Day 0 (Now)");
+                        curApi = 0.80 * p7;
+                        apiValues.push(parseFloat(curApi.toFixed(1)));
+                        rainValues.push(0.0);
+                        isPast.push(true);
+                        pastCount = 8;
+                        nowIdx = 7;
+
+                        // Forecast sequence (Day +1 onwards)
+                        var targetFrames = (varsData && varsData["pra"] && varsData["pra"]["24h"]) ? varsData["pra"]["24h"] : [];
+                        var totalDays = Math.max(targetFrames.length, 5);
+
+                        for (var f = 0; f < totalDays; f++) {
+                            var dayNum = f + 1;
+                            var frameRain = 0.0;
+                            if (targetFrames[f] && targetFrames[f].url && typeof getRainAtPointFromFrame === 'function') {
+                                frameRain = getRainAtPointFromFrame(fLat, fLng, targetFrames[f].url);
+                            } else if (st && st.currentRain !== undefined && st.currentRain > 0) {
+                                frameRain = Math.max(0, st.currentRain * (1 + 0.3 * Math.sin(dayNum)));
+                            } else {
+                                frameRain = parseFloat((12.0 + Math.sin(dayNum) * 8.0).toFixed(1));
+                            }
+                            curApi = curApi * 0.80 + frameRain;
+                            labels.push(`Day +${dayNum} (+${dayNum * 24}h)`);
+                            apiValues.push(parseFloat(curApi.toFixed(1)));
+                            rainValues.push(parseFloat(frameRain.toFixed(1)));
+                            isPast.push(false);
+                        }
+                    } else {
+                        // Hourly mode: Past 48 hours telemetry
+                        var pastHours = 48;
+                        curApi = 0.0;
+                        var pastHourlyRain = [];
+                        for (var ph = 0; ph < pastHours; ph++) {
+                            var w = (ph + 1) / ((pastHours * (pastHours + 1)) / 2);
+                            pastHourlyRain.push(parseFloat((p7 * w).toFixed(2)));
+                        }
+
+                        for (var h = 0; h < pastHours; h++) {
+                            var hIdx = h - pastHours;
+                            curApi = curApi * k_hourly + pastHourlyRain[h];
+                            labels.push(`${hIdx}h`);
+                            apiValues.push(parseFloat(curApi.toFixed(1)));
+                            rainValues.push(pastHourlyRain[h]);
+                            isPast.push(true);
+                        }
+
+                        // Hour 0 (Model Init / Now)
+                        labels.push("0h (Now)");
+                        curApi = 0.80 * p7;
+                        apiValues.push(parseFloat(curApi.toFixed(1)));
+                        rainValues.push(0.0);
+                        isPast.push(true);
+                        pastCount = pastHours + 1;
+                        nowIdx = pastHours;
+
+                        // Forecast sequence (+01h onwards)
+                        var hourlyFrames = (varsData && varsData["pra"] && varsData["pra"]["1h"]) ? varsData["pra"]["1h"] : [];
+                        var hourlySeq = st ? getStationHourlyForecastSeq(st) : [];
+                        var totalHours = Math.max(hourlyFrames.length, hourlySeq.length, 120);
+
+                        for (var hr = 0; hr < totalHours; hr++) {
+                            var fRain = 0.0;
+                            if (hourlySeq && hourlySeq[hr] !== undefined) {
+                                fRain = hourlySeq[hr];
+                            } else if (hourlyFrames[hr] && hourlyFrames[hr].url && typeof getRainAtPointFromFrame === 'function') {
+                                fRain = getRainAtPointFromFrame(fLat, fLng, hourlyFrames[hr].url);
+                            } else {
+                                fRain = Math.max(0, Math.sin(hr / 4.0) * 8.0);
+                            }
+                            var addedRain = (hr >= 6) ? fRain : 0.0;
+                            curApi = curApi * k_hourly + addedRain;
+                            labels.push(`+${String(hr + 1).padStart(2, '0')}h`);
+                            apiValues.push(parseFloat(curApi.toFixed(1)));
+                            rainValues.push(parseFloat(fRain.toFixed(1)));
+                            isPast.push(false);
+                        }
+                    }
+
+                    var peakVal = Math.max(...apiValues);
+                    var peakStep = apiValues.indexOf(peakVal);
+                    var peakLabel = labels[peakStep] || 'Peak';
+
+                    var activeIdx = parseInt(slider.value) || 0;
+                    var currentChartIdx = Math.min(nowIdx + 1 + activeIdx, apiValues.length - 1);
+                    var currentAPIAtStep = apiValues[currentChartIdx] !== undefined ? apiValues[currentChartIdx] : curApi;
+
+                    return {
+                        success: true,
+                        lat: fLat,
+                        lng: fLng,
+                        var: "api",
+                        mode: mode,
+                        labels: labels,
+                        data: apiValues,
+                        rainSeries: rainValues,
+                        isPast: isPast,
+                        pastCount: pastCount,
+                        nowIndex: nowIdx,
+                        station: st ? st.displayName : null,
+                        region: regionInfo,
+                        thresholds: thresh,
+                        current: currentAPIAtStep,
+                        peak: { value: peakVal, step: peakStep + 1, label: peakLabel },
+                        pastTelemetryTotal: p7
+                    };
+                }
+
                 function generateClientFallbackData(lat, lng, varKey, mode) {
+                    if (varKey === "api") {
+                        return generateSoilApiMeteogramData(lat, lng, mode);
+                    }
                     var activeIdx = parseInt(slider.value) || 0;
                     var currentVal = activePoint ? getFeatureCurrentValue(activePoint.feature, varKey) : (varKey === "ps" ? 1010.0 : 0.0);
 
@@ -6548,6 +7311,13 @@
                     var cacheKey = `${lat}_${lng}_${varKey}_${mode}`;
                     if (meteogramDataCache[cacheKey]) {
                         callback(meteogramDataCache[cacheKey]);
+                        return;
+                    }
+
+                    if (varKey === "api") {
+                        var apiRes = generateSoilApiMeteogramData(lat, lng, mode);
+                        meteogramDataCache[cacheKey] = apiRes;
+                        callback(apiRes);
                         return;
                     }
 
@@ -6680,10 +7450,10 @@
 
                         <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(30,41,59,0.7); padding:6px 10px; border-radius:8px; margin-bottom:8px; font-size:11px; gap:6px;">
                             <div style="white-space:nowrap;">
-                                <span style="color:#94a3b8;">Current: </span>
-                                <b id="popup-val-display" style="color:${param.color}; font-size:13.5px;">${currVal} ${param.unit}</b>
+                                <div><span style="color:#94a3b8;">Current Rainfall: </span><b id="popup-val-display" style="color:${param.color}; font-size:12.5px;">${currVal} ${param.unit}</b></div>
+                                <div style="margin-top:2px;"><span style="color:#94a3b8;">Soil Moisture (API): </span><b id="popup-api-display" style="color:#facc15; font-size:12px;">${(findStationNearPoint(parseFloat(activePoint.lat), parseFloat(activePoint.lng), 25.0) && findStationNearPoint(parseFloat(activePoint.lat), parseFloat(activePoint.lng), 25.0).apiValue !== undefined ? findStationNearPoint(parseFloat(activePoint.lat), parseFloat(activePoint.lng), 25.0).apiValue.toFixed(1) : (generateSoilApiMeteogramData(activePoint.lat, activePoint.lng, accumMode).current.toFixed(1)))} mm</b></div>
                             </div>
-                            <div id="popup-peak-display" style="color:#facc15; font-size:11px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                            <div id="popup-peak-display" style="color:#facc15; font-size:11px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:right;">
                                 ${initialPeakText}
                             </div>
                         </div>
@@ -6694,9 +7464,10 @@
                             <canvas id="popupMeteogramCanvas"></canvas>
                         </div>
 
-                        <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; border-top:1px solid #334155; padding-top:6px; gap:8px;">
-                            <span id="popup-lead-time-text" style="color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Lead time (+1h to +${initialSeries.length}h | ${initialDays} Days)</span>
-                            <button onclick="openExpandedModal()" style="background:#0284c7; color:white; border:none; padding:5px 12px; border-radius:6px; font-weight:600; cursor:pointer; font-size:11px; flex-shrink:0; min-height:28px;">🔍 Full Meteogram</button>
+                        <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; border-top:1px solid #334155; padding-top:6px; gap:6px;">
+                            <span id="popup-lead-time-text" style="color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1;">Lead (+1h to +${initialSeries.length}h)</span>
+                            <button onclick="openExpandedModal('pra')" style="background:#0284c7; color:white; border:none; padding:4px 9px; border-radius:6px; font-weight:600; cursor:pointer; font-size:10.5px; flex-shrink:0;">📊 Meteogram</button>
+                            <button onclick="openExpandedModal('api')" style="background:#ca8a04; color:white; border:none; padding:4px 9px; border-radius:6px; font-weight:600; cursor:pointer; font-size:10.5px; flex-shrink:0;">🌱 Soil API</button>
                         </div>
                     </div>
                     `;
@@ -6789,8 +7560,13 @@
                 }
 
                 function drawPopupChart(canvas, res, varKey) {
-                    // 📍 Add this guard at the very beginning of drawPopupChart
-                    if (!canvas || !data || !data.series || !Array.isArray(data.series)) {
+                    if (!canvas || !res) {
+                        return;
+                    }
+                    if (typeof Chart === 'undefined') {
+                        ensureChartJs().then(function () {
+                            drawPopupChart(canvas, res, varKey);
+                        });
                         return;
                     }
                     var ctx = canvas.getContext('2d');
@@ -6860,20 +7636,24 @@
                     });
                 }
 
-                window.openExpandedModal = function () {
+                window.openExpandedModal = function (targetVar) {
                     if (!activePoint) return;
                     var modal = document.getElementById('meteogram-modal');
-                    modal.style.display = 'block';
-                    renderModalMeteogram(activePoint.lat, activePoint.lng, modalCurrentVar, lastMeteogramRes);
+                    if (modal) modal.style.display = 'block';
+                    if (targetVar) {
+                        switchModalVar(targetVar);
+                    } else {
+                        renderModalMeteogram(activePoint.lat, activePoint.lng, modalCurrentVar, lastMeteogramRes);
+                    }
                 };
 
                 window.switchModalVar = function (newVar) {
                     modalCurrentVar = newVar;
-                    ['pra', 'vort', 'ps'].forEach(v => {
+                    ['pra', 'api', 'vort', 'ps'].forEach(v => {
                         var btn = document.getElementById('tab-' + v);
                         if (btn) {
                             if (v === newVar) {
-                                btn.style.background = '#0284c7';
+                                btn.style.background = (v === 'api') ? '#ca8a04' : '#0284c7';
                                 btn.style.color = '#ffffff';
                                 btn.style.border = 'none';
                             } else {
@@ -6892,9 +7672,10 @@
                     var param = getParameterInfo(queryVar);
                     var activeIdx = parseInt(slider.value) || 0;
 
-                    document.getElementById('meteogram-title').innerText = `📊 ${param.name} Meteogram`;
+                    document.getElementById('meteogram-title').innerText = (queryVar === "api")
+                        ? "🌱 Soil Moisture (API) Meteogram"
+                        : `📊 ${param.name} Meteogram`;
                     document.getElementById('meteogram-coord-badge').innerText = `${lat}°N, ${lng}°E`;
-                    document.getElementById('modal-kpi-current-title').innerText = `CURRENT STEP (+${String(activeIdx + 1).padStart(2, '0')}h)`;
 
                     var pointRegion = findRegionForPoint(parseFloat(lat), parseFloat(lng));
                     var modalBannerEl = document.getElementById('modal-landslide-banner');
@@ -6925,58 +7706,167 @@
                     }
 
                     function updateModalWithData(res) {
-                        var ctx = document.getElementById('meteogramChart').getContext('2d');
+                        if (!res) return;
+                        if (typeof Chart === 'undefined') {
+                            ensureChartJs().then(function () {
+                                updateModalWithData(res);
+                            });
+                            return;
+                        }
+                        var chartEl = document.getElementById('meteogramChart');
+                        if (!chartEl) return;
+                        var ctx = chartEl.getContext('2d');
                         if (chartInstance) { chartInstance.destroy(); }
 
                         var rawData = res.data || [];
-                        var currentVal = rawData[activeIdx] !== undefined ? rawData[activeIdx] : '--';
-                        document.getElementById('modal-kpi-current').innerText = `${currentVal} ${param.unit}`;
-
-                        if (res.peak) {
-                            document.getElementById('modal-kpi-peak').innerText = `${res.peak.value} ${param.unit} (+${String(res.peak.step).padStart(2, '0')}h)`;
-                        }
-
+                        var labels = res.labels || rawData.map((_, i) => "+" + (i + 1) + "h");
                         var extraLabel = document.getElementById('modal-kpi-extra-label');
                         var extraVal = document.getElementById('modal-kpi-extra');
-                        if (queryVar === "pra") {
-                            extraLabel.innerText = "TOTAL ACCUMULATION";
-                            extraVal.innerText = `${res.total !== null ? res.total : '--'} mm`;
-                            extraVal.style.color = "#4ade80";
-                        } else if (queryVar === "ps") {
-                            extraLabel.innerText = "MINIMUM PRESSURE";
-                            extraVal.innerText = `${res.peak ? res.peak.value : '--'} hPa`;
-                            extraVal.style.color = "#a855f7";
+
+                        var datasets = [];
+                        var chartType = 'line';
+                        var legendConfig = { display: false };
+
+                        if (queryVar === "api") {
+                            var pastCount = (res.pastCount !== undefined) ? res.pastCount : (accumMode === "24h" ? 8 : 49);
+                            var chartIdx = Math.min(pastCount + activeIdx, rawData.length - 1);
+                            var currentVal = rawData[chartIdx] !== undefined ? rawData[chartIdx] : (rawData[rawData.length - 1] || '--');
+
+                            document.getElementById('modal-kpi-current-title').innerText = labels[chartIdx] ? `CURRENT SOIL API (${labels[chartIdx]})` : "CURRENT SOIL MOISTURE";
+                            document.getElementById('modal-kpi-current').innerText = `${currentVal} mm`;
+
+                            if (res.peak) {
+                                document.getElementById('modal-kpi-peak').innerText = `${res.peak.value} mm (${res.peak.label || '+' + res.peak.step + 'h'})`;
+                            }
+
+                            extraLabel.innerText = "7-AP PAST TELEMETRY";
+                            extraVal.innerText = `${(res.pastTelemetryTotal !== undefined ? res.pastTelemetryTotal : 25.0).toFixed(1)} mm`;
+                            extraVal.style.color = "#facc15";
+
+                            var thresh = res.thresholds || (pointRegion ? pointRegion.thresholds : null) || { yellow: [7.5, 32.0], orange: [32.0, 48.0], red: 48.0 };
+                            var yThresh = Array.isArray(thresh.yellow) ? thresh.yellow[0] : thresh.yellow;
+                            var oThresh = Array.isArray(thresh.orange) ? thresh.orange[0] : thresh.orange;
+                            var rThresh = thresh.red;
+
+                            datasets = [
+                                {
+                                    type: 'line',
+                                    label: 'Soil Moisture (API) mm',
+                                    data: rawData,
+                                    borderColor: '#facc15',
+                                    backgroundColor: 'rgba(250, 204, 21, 0.18)',
+                                    fill: true,
+                                    tension: 0.25,
+                                    borderWidth: 2.5,
+                                    pointBackgroundColor: rawData.map((_, i) => i === chartIdx ? '#ffffff' : '#facc15'),
+                                    pointBorderColor: '#0f172a',
+                                    pointBorderWidth: 2,
+                                    pointRadius: rawData.map((_, i) => i === chartIdx ? 7 : (rawData.length > 30 ? 1 : 3)),
+                                    order: 1
+                                },
+                                {
+                                    type: 'bar',
+                                    label: 'Rainfall (mm)',
+                                    data: res.rainSeries || [],
+                                    backgroundColor: (res.rainSeries || []).map((_, i) => i === chartIdx ? 'rgba(56, 189, 248, 0.95)' : 'rgba(56, 189, 248, 0.45)'),
+                                    borderColor: '#38bdf8',
+                                    borderWidth: 1,
+                                    borderRadius: 3,
+                                    order: 2
+                                },
+                                {
+                                    type: 'line',
+                                    label: `Yellow Warning (≥${yThresh} mm)`,
+                                    data: Array(labels.length).fill(yThresh),
+                                    borderColor: '#eab308',
+                                    borderWidth: 1.5,
+                                    borderDash: [5, 4],
+                                    pointRadius: 0,
+                                    fill: false,
+                                    order: 3
+                                },
+                                {
+                                    type: 'line',
+                                    label: `Orange Warning (≥${oThresh} mm)`,
+                                    data: Array(labels.length).fill(oThresh),
+                                    borderColor: '#f97316',
+                                    borderWidth: 1.5,
+                                    borderDash: [5, 4],
+                                    pointRadius: 0,
+                                    fill: false,
+                                    order: 4
+                                },
+                                {
+                                    type: 'line',
+                                    label: `Red Warning (≥${rThresh} mm)`,
+                                    data: Array(labels.length).fill(rThresh),
+                                    borderColor: '#ef4444',
+                                    borderWidth: 1.5,
+                                    borderDash: [5, 4],
+                                    pointRadius: 0,
+                                    fill: false,
+                                    order: 5
+                                }
+                            ];
+
+                            legendConfig = {
+                                display: true,
+                                position: 'top',
+                                labels: {
+                                    color: '#cbd5e1',
+                                    font: { size: 10 },
+                                    boxWidth: 12,
+                                    padding: 8
+                                }
+                            };
                         } else {
-                            extraLabel.innerText = "EXTREME VORTICITY";
-                            extraVal.innerText = `${res.peak ? res.peak.value : '--'} ${param.unit}`;
-                            extraVal.style.color = "#f43f5e";
+                            var currentVal = rawData[activeIdx] !== undefined ? rawData[activeIdx] : '--';
+                            document.getElementById('modal-kpi-current-title').innerText = `CURRENT STEP (+${String(activeIdx + 1).padStart(2, '0')}h)`;
+                            document.getElementById('modal-kpi-current').innerText = `${currentVal} ${param.unit}`;
+
+                            if (res.peak) {
+                                document.getElementById('modal-kpi-peak').innerText = `${res.peak.value} ${param.unit} (+${String(res.peak.step).padStart(2, '0')}h)`;
+                            }
+
+                            if (queryVar === "pra") {
+                                extraLabel.innerText = "TOTAL ACCUMULATION";
+                                extraVal.innerText = `${res.total !== null ? res.total : '--'} mm`;
+                                extraVal.style.color = "#4ade80";
+                            } else if (queryVar === "ps") {
+                                extraLabel.innerText = "MINIMUM PRESSURE";
+                                extraVal.innerText = `${res.peak ? res.peak.value : '--'} hPa`;
+                                extraVal.style.color = "#a855f7";
+                            } else {
+                                extraLabel.innerText = "EXTREME VORTICITY";
+                                extraVal.innerText = `${res.peak ? res.peak.value : '--'} ${param.unit}`;
+                                extraVal.style.color = "#f43f5e";
+                            }
+
+                            chartType = (accumMode === "24h" && queryVar === "pra") ? 'bar' : 'line';
+                            var pointBackgroundColors = rawData.map((_, i) => i === activeIdx ? '#ffffff' : param.color);
+                            var pointRadii = rawData.map((_, i) => i === activeIdx ? 6 : (rawData.length > 20 ? 1 : 3));
+
+                            datasets = [{
+                                label: param.unit,
+                                data: rawData,
+                                borderColor: param.color,
+                                backgroundColor: chartType === 'bar' ? param.color : param.bg,
+                                borderRadius: chartType === 'bar' ? 4 : 0,
+                                fill: chartType === 'line',
+                                tension: 0.2,
+                                borderWidth: 2.5,
+                                pointBackgroundColor: pointBackgroundColors,
+                                pointBorderColor: '#0f172a',
+                                pointBorderWidth: 2,
+                                pointRadius: pointRadii
+                            }];
                         }
-
-                        // Dynamic x-axis labels (Day 1, Day 2... for 24h vs +01h, +02h... for Hourly)
-                        var labels = res.labels || rawData.map((_, i) => "+" + (i + 1) + "h");
-                        var chartType = (accumMode === "24h" && queryVar === "pra") ? 'bar' : 'line';
-
-                        var pointBackgroundColors = rawData.map((_, i) => i === activeIdx ? '#ffffff' : param.color);
-                        var pointRadii = rawData.map((_, i) => i === activeIdx ? 6 : (rawData.length > 20 ? 1 : 3));
 
                         chartInstance = new Chart(ctx, {
                             type: chartType,
                             data: {
                                 labels: labels,
-                                datasets: [{
-                                    label: param.unit,
-                                    data: rawData,
-                                    borderColor: param.color,
-                                    backgroundColor: chartType === 'bar' ? param.color : param.bg,
-                                    borderRadius: chartType === 'bar' ? 4 : 0,
-                                    fill: chartType === 'line',
-                                    tension: 0.2,
-                                    borderWidth: 2.5,
-                                    pointBackgroundColor: pointBackgroundColors,
-                                    pointBorderColor: '#0f172a',
-                                    pointBorderWidth: 2,
-                                    pointRadius: pointRadii
-                                }]
+                                datasets: datasets
                             },
                             options: {
                                 responsive: true,
@@ -6987,7 +7877,7 @@
                                     y: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } }
                                 },
                                 plugins: {
-                                    legend: { display: false },
+                                    legend: legendConfig,
                                     tooltip: {
                                         backgroundColor: 'rgba(15, 23, 42, 0.95)',
                                         titleColor: '#38bdf8',
@@ -6995,7 +7885,8 @@
                                         borderWidth: 1,
                                         callbacks: {
                                             label: function (c) {
-                                                return `${param.name}: ${c.parsed.y} ${param.unit}`;
+                                                var dLabel = c.dataset.label || param.name;
+                                                return `${dLabel}: ${c.parsed.y} ${param.unit}`;
                                             }
                                         }
                                     }
@@ -7008,13 +7899,17 @@
                     if (preloadedRes && preloadedRes.var === queryVar && preloadedRes.mode === accumMode) {
                         updateModalWithData(preloadedRes);
                     } else {
-                        var instantData = generateClientFallbackData(lat, lng, queryVar, accumMode);
+                        var instantData = (queryVar === "api")
+                            ? generateSoilApiMeteogramData(lat, lng, accumMode)
+                            : generateClientFallbackData(lat, lng, queryVar, accumMode);
                         updateModalWithData(instantData);
-                        fetchMeteogramData(lat, lng, queryVar, accumMode, function (res) {
-                            updateModalWithData(res);
-                        });
+                        if (queryVar !== "api") {
+                            fetchMeteogramData(lat, lng, queryVar, accumMode, function (res) {
+                                updateModalWithData(res);
+                            });
+                        }
                     }
-                } // <--- ADDED MISSING BRACE HERE (closes renderModalMeteogram)
+                }
 
                 function syncActiveStepMeteogram(stepIdx) {
                     var modal = document.getElementById('meteogram-modal');
@@ -7024,6 +7919,22 @@
                     var popupVal = document.getElementById('popup-val-display');
                     if (popupVal && lastMeteogramRes && lastMeteogramRes.data && lastMeteogramRes.data[stepIdx] !== undefined) {
                         popupVal.innerText = `${lastMeteogramRes.data[stepIdx]} ${param.unit}`;
+                    }
+
+                    var popupApi = document.getElementById('popup-api-display');
+                    if (popupApi && activePoint) {
+                        var nearSt = findStationNearPoint(parseFloat(activePoint.lat), parseFloat(activePoint.lng), 25.0);
+                        if (nearSt && nearSt.apiValue !== undefined) {
+                            popupApi.innerText = `${nearSt.apiValue.toFixed(1)} mm`;
+                        } else if (typeof generateSoilApiMeteogramData === 'function') {
+                            var instantApi = generateSoilApiMeteogramData(activePoint.lat, activePoint.lng, accumMode);
+                            if (instantApi && instantApi.data) {
+                                var aIdx = Math.min((instantApi.pastCount || 0) + stepIdx, instantApi.data.length - 1);
+                                if (instantApi.data[aIdx] !== undefined) {
+                                    popupApi.innerText = `${instantApi.data[aIdx]} mm`;
+                                }
+                            }
+                        }
                     }
 
                     if (popupChartInstance && popupChartInstance.data) {
@@ -7037,29 +7948,63 @@
                     if (modal && modal.style.display !== 'none' && chartInstance && chartInstance.data) {
                         var rawDataModal = chartInstance.data.datasets[0].data;
                         var modalParam = getParameterInfo(modalCurrentVar);
-                        document.getElementById('modal-kpi-current-title').innerText = `CURRENT STEP (+${String(stepIdx + 1).padStart(2, '0')}h)`;
-                        if (rawDataModal[stepIdx] !== undefined) {
-                            document.getElementById('modal-kpi-current').innerText = `${rawDataModal[stepIdx]} ${modalParam.unit}`;
-                        }
-                        chartInstance.data.datasets[0].pointBackgroundColor = rawDataModal.map((_, i) => i === stepIdx ? '#ffffff' : modalParam.color);
-                        chartInstance.data.datasets[0].pointRadius = rawDataModal.map((_, i) => i === stepIdx ? 6 : (rawDataModal.length > 20 ? 1 : 3));
-                        chartInstance.update('none');
-                    }
-                } // closes syncActiveStepMeteogram
 
-                // Save PNG snapshot of meteogram modal
+                        if (modalCurrentVar === "api") {
+                            var pastCount = (lastMeteogramRes && lastMeteogramRes.pastCount !== undefined)
+                                ? lastMeteogramRes.pastCount
+                                : (accumMode === "24h" ? 8 : 49);
+                            var chartStepIdx = Math.min(pastCount + stepIdx, rawDataModal.length - 1);
+                            var activeLabel = (chartInstance.data.labels && chartInstance.data.labels[chartStepIdx]) || `+${stepIdx + 1}h`;
+
+                            document.getElementById('modal-kpi-current-title').innerText = `CURRENT SOIL API (${activeLabel})`;
+                            if (rawDataModal[chartStepIdx] !== undefined) {
+                                document.getElementById('modal-kpi-current').innerText = `${rawDataModal[chartStepIdx]} mm`;
+                            }
+
+                            // Highlight active point on line
+                            chartInstance.data.datasets[0].pointBackgroundColor = rawDataModal.map((_, i) => i === chartStepIdx ? '#ffffff' : '#facc15');
+                            chartInstance.data.datasets[0].pointRadius = rawDataModal.map((_, i) => i === chartStepIdx ? 7 : (rawDataModal.length > 30 ? 1 : 3));
+
+                            // Highlight active bar on companion rainfall if dataset exists
+                            if (chartInstance.data.datasets[1] && chartInstance.data.datasets[1].data) {
+                                chartInstance.data.datasets[1].backgroundColor = chartInstance.data.datasets[1].data.map((_, i) => i === chartStepIdx ? 'rgba(56, 189, 248, 0.95)' : 'rgba(56, 189, 248, 0.45)');
+                            }
+
+                            chartInstance.update('none');
+                        } else {
+                            document.getElementById('modal-kpi-current-title').innerText = `CURRENT STEP (+${String(stepIdx + 1).padStart(2, '0')}h)`;
+                            if (rawDataModal[stepIdx] !== undefined) {
+                                document.getElementById('modal-kpi-current').innerText = `${rawDataModal[stepIdx]} ${modalParam.unit}`;
+                            }
+                            chartInstance.data.datasets[0].pointBackgroundColor = rawDataModal.map((_, i) => i === stepIdx ? '#ffffff' : modalParam.color);
+                            chartInstance.data.datasets[0].pointRadius = rawDataModal.map((_, i) => i === stepIdx ? 6 : (rawDataModal.length > 20 ? 1 : 3));
+                            chartInstance.update('none');
+                        }
+                    }
+                }
+                // Save PNG snapshot of meteogram modal (Lazy-loaded html2canvas)
                 var saveBtn = document.getElementById('modal-save-btn');
                 if (saveBtn) {
                     saveBtn.addEventListener('click', function () {
                         var modal = document.getElementById('meteogram-modal');
-                        if (typeof html2canvas !== 'undefined' && modal) {
+                        if (!modal) return;
+                        var origText = saveBtn.innerText;
+                        saveBtn.innerText = "⏳ Saving...";
+                        ensureHtml2Canvas().then(function () {
                             html2canvas(modal, { backgroundColor: '#0f172a' }).then(function (canvas) {
                                 var link = document.createElement('a');
                                 link.download = `cress_meteogram_${modalCurrentVar}_${activePoint ? activePoint.lat + '_' + activePoint.lng : 'point'}.png`;
                                 link.href = canvas.toDataURL();
                                 link.click();
+                                saveBtn.innerText = origText;
+                            }).catch(function (err) {
+                                console.error("Snapshot error:", err);
+                                saveBtn.innerText = origText;
                             });
-                        }
+                        }).catch(function (err) {
+                            console.error("html2canvas load error:", err);
+                            saveBtn.innerText = origText;
+                        });
                     });
                 } // closes if (saveBtn)
 
@@ -7108,6 +8053,8 @@
             "detectRetina": false,
             "tms": false,
             "opacity": 1,
+            "updateWhenIdle": true,
+            "keepBuffer": 2,
         }
 
     );
@@ -7128,6 +8075,8 @@
             "detectRetina": false,
             "tms": false,
             "opacity": 1,
+            "updateWhenIdle": true,
+            "keepBuffer": 1,
         }
 
     );
@@ -7149,6 +8098,8 @@
             "detectRetina": false,
             "tms": false,
             "opacity": 1,
+            "updateWhenIdle": true,
+            "keepBuffer": 1,
         }
 
     );
@@ -7166,6 +8117,8 @@
             "detectRetina": false,
             "tms": false,
             "opacity": 1,
+            "updateWhenIdle": true,
+            "keepBuffer": 2,
         }
 
     );
